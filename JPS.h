@@ -468,6 +468,16 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
 		it->second.clearState();
 
+	if(start == end)
+	{
+		if(grid(end.x, end.y)) // There is only a path if this single position is walkable.
+		{
+			path.push_back(end);
+			return true;
+		}
+		return false;
+	}
+
 	// If start or end point are obstructed, don't even start
 	{
 		Node *startNode = getNode(start.x, start.y);
