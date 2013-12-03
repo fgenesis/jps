@@ -171,6 +171,7 @@ private:
 	Node *jump(Node *n, const Node *parent);
 	Position jumpP(Position p, const Position& src);
 	Position jumpPRec(const Position& p, const Position& src);
+	Position jumpD(Position p, int dx, int dy);
 	Position jumpX(Position p, int dx);
 	Position jumpY(Position p, int dy);
 };
@@ -213,10 +214,26 @@ template <typename GRID> Position Searcher<GRID>::jumpP(Position p, const Positi
 	int dy = int(p.y - src.y);
 	JPS_ASSERT(dx || dy);
 
+	if(dx && dy)
+		return jumpD(p, dx, dy);
+	else if(dx)
+		return jumpX(p, dx);
+	else if(dy)
+		return jumpY(p, dy);
+
+	// not reached
+	JPS_ASSERT(false);
+	return npos;
+}
+
+template <typename GRID> Position Searcher<GRID>::jumpD(Position p, int dx, int dy)
+{
+	JPS_ASSERT(grid(p.x, p.y));
+	JPS_ASSERT(dx && dy);
+
 	const Position& endpos = endNode->pos;
 
-	loopstart:
-	do
+	while(true)
 	{
 		if(p == endpos)
 			return p;
@@ -224,42 +241,26 @@ template <typename GRID> Position Searcher<GRID>::jumpP(Position p, const Positi
 		const unsigned x = p.x;
 		const unsigned y = p.y;
 
-		if(dx && dy)
-		{
-			if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
-				return p;
-		}
-		else if(dx)
-		{
-			if( (grid(x+dx, y+1) && !grid(x, y+1)) || (grid(x+dx, y-1) && !grid(x, y-1)) )
-				return p;
-		}
-		else if(dy)
-		{
-			if( (grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy) && !grid(x-1, y)) )
-				return p;
-		}
+		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
+			return p;
 
-		const bool gdx = !dx || grid(x+dx, y);
-		const bool gdy = !dy || grid(x, y+dy);
+		const bool gdx = grid(x+dx, y);
+		const bool gdy = grid(x, y+dy);
 
-		if(dx && dy)
-		{
-			if(gdx && jumpX(Pos(x+dx, y), dx) != npos)
-				return p;
+		if(gdx && jumpX(Pos(x+dx, y), dx) != npos)
+			return p;
 
-			if(gdy && jumpY(Pos(x, y+dy), dy) != npos)
-				return p;
-		}
+		if(gdy && jumpY(Pos(x, y+dy), dy) != npos)
+			return p;
 
 		if((gdx || gdy) && grid(x+dx, y+dy))
 		{
 			p.x += dx;
 			p.y += dy;
-			goto loopstart;
 		}
+		else
+			break;
 	}
-	while(0);
 
 	return npos;
 }
