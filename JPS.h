@@ -184,9 +184,8 @@ private:
 	Node *jump(Node *n, const Node *parent);
 	Position jumpP(const Position& cur, const Position& src);
 	Position jumpPRec(const Position& p, const Position& src);
-	Position jumpX(const Position& cur, int dx);
-	Position jumpY(const Position& cur, int dy);
-	Position jumpD(const Position& cur, int dx, int dy);
+	Position jumpX(Position cur, int dx);
+	Position jumpY(Position cur, int dy);
 };
 
 template <typename GRID> inline Node *Searcher<GRID>::getNode(unsigned x, unsigned y)
@@ -266,65 +265,47 @@ template <typename GRID> Position Searcher<GRID>::jumpP(const Position& p, const
 	return npos;
 }
 
-template <typename GRID> Position Searcher<GRID>::jumpX(const Position& p, int dx)
+template <typename GRID> Position Searcher<GRID>::jumpX(Position p, int dx)
 {
-	if(p == endNode->pos)
-		return p;
-
-	const unsigned x = p.x;
 	const unsigned y = p.y;
+	while(true)
+	{
+		if(p == endNode->pos)
+			return p;
 
-	if((grid(x+dx, y+1) && !grid(x, y+1) ) || (grid(x+dx, y-1)  && !grid(x, y-1)))
-		return p;
+		const unsigned x = p.x;
 
-	if(grid(x+dx, y))
-		return jumpX(Pos(x+dx, y), dx);
+		if((grid(x+dx, y+1) && !grid(x, y+1) ) || (grid(x+dx, y-1)  && !grid(x, y-1)))
+			return p;
+
+		if(grid(x+dx, y))
+			p.x += dx;
+		else
+			break;
+	}
 
 	return npos;
 }
 
-template <typename GRID> Position Searcher<GRID>::jumpY(const Position& p, int dy)
+template <typename GRID> Position Searcher<GRID>::jumpY(Position p, int dy)
 {
-	if(p == endNode->pos)
-		return p;
-
 	const unsigned x = p.x;
-	const unsigned y = p.y;
+	while(true)
+	{
+		if(p == endNode->pos)
+			return p;
 
-	if(((grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy)  && !grid(x-1, y))))
-		return p;
+		const unsigned y = p.y;
 
-	if(grid(x, y+dy))
-		return jumpY(Pos(x, y+dy), dy);
+		if(((grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy)  && !grid(x-1, y))))
+			return p;
 
-	return npos;
-}
+		if(grid(x, y+dy))
+			p.y += dy;
+		else
+			break;
+	}
 
-template <typename GRID> Position Searcher<GRID>::jumpD(const Position& p, int dx, int dy)
-{
-	JPS_ASSERT(0);
-/*
-	if(p == endNode->pos)
-		return p;
-
-	const unsigned x = p.x;
-	const unsigned y = p.y;
-
-	if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
-		return p;
-
-	const bool gdx = grid(x+dx, y);
-	const bool gdy = grid(x, y+dy);
-
-	if(gdx && jumpX(Pos(x+dx, y), dx) != npos)
-		return p;
-
-	if(gdy && jumpY(Pos(x, y+dy), dy) != npos)
-		return p;
-
-	if((gdx || gdy) && grid(x+dx, y+dy))
-		return jumpD(Pos(x+dx, y+dy), dx, dy);
-*/
 	return npos;
 }
 
