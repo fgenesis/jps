@@ -27,6 +27,10 @@ struct Position
 	{
 		return x == p.x && y == p.y;
 	}
+	inline bool operator!=(const Position& p) const
+	{
+		return x != p.x || y != p.y;
+	}
 
 	// for sorting
 	inline bool operator<(const Position& p) const
@@ -45,6 +49,8 @@ inline static Position Pos(unsigned x, unsigned y)
 	p.y = y;
 	return p;
 }
+
+static const Position npos = Pos(-1, -1);
 
 namespace Internal {
 class Node
@@ -138,7 +144,9 @@ template <typename GRID> class Searcher
 public:
 	Searcher(const GRID& g)
 		: grid(g)
-	{}
+	{
+		wrkmem.reserve(8);
+	}
 
 	bool findPath(PathVector& path, const Node& start, const Node& end, bool detail);
 	Node *getNode(unsigned x, unsigned y);
@@ -158,6 +166,7 @@ private:
 	void identifySuccessors(const Node *n);
 	void findNeighbors(const Node *n);
 	Node *jump(Node *n, const Node *parent);
+	Position jumpP(const Position& p, const Position& src);
 };
 
 template <typename GRID> inline Node *Searcher<GRID>::getNode(unsigned x, unsigned y)
@@ -185,47 +194,51 @@ template <typename GRID> inline Node *Searcher<GRID>::_addNodeWrk(unsigned x, un
 
 template <typename GRID> Node *Searcher<GRID>::jump(Node *n, const Node *parent)
 {
-	if(!n)
-		return 0;
-	const unsigned x = n->x;
-	const unsigned y = n->y;
-	if(!grid(x, y))
-		return 0;
-	if(n == endNode)
-		return n;
+	Position p = jumpP(n->pos, parent->pos);
+	return p != npos ? getNode(p.x, p.y) : 0;
+}
 
-	int dx = x - parent->x;
-	int dy = y - parent->y;
+template <typename GRID> Position Searcher<GRID>::jumpP(const Position& p, const Position& src)
+{
+	unsigned x = p.x;
+	unsigned y = p.y;
+	if(!grid(x, y))
+		return npos;
+	if(p == endNode->pos)
+		return p;
+
+	int dx = x - src.x;
+	int dy = y - src.y;
 
 	if(dx && dy)
 	{
 		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
-			return n;
+			return p;
 	}
 	else if(dx)
 	{
 		if( (grid(x+dx, y+1) && !grid(x, y+1)) || (grid(x+dx, y-1) && !grid(x, y-1)) )
-			return n;
+			return p;
 	}
 	else if(dy)
 	{
 		if( (grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy) && !grid(x-1, y)) )
-			return n;
+			return p;
 	}
 
 	if(dx && dy)
 	{
-		if(jump(getNode(x+dx, y), n))
-			return n;
-		if(jump(getNode(x, y+dy), n))
-			return n;
+		if(jumpP(Pos(x+dx, y), p) != npos)
+			return p;
+		if(jumpP(Pos(x, y+dy), p) != npos)
+			return p;
 	}
 
 	// TODO: get rid of this recursion
 	if(grid(x+dx, y) || grid(x, y+dy))
-		return jump(getNode(x+dx, y+dy), n);
+		return jumpP(Pos(x+dx, y+dy), p);
 
-	return 0;
+	return npos;
 }
 
 template <typename GRID> void Searcher<GRID>::findNeighbors(const Node *n)
