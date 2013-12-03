@@ -148,7 +148,9 @@ public:
 		wrkmem.reserve(8);
 	}
 
-	bool findPath(PathVector& path, const Node& start, const Node& end, bool detail);
+	void freeMemory();
+
+	bool findPath(PathVector& path, const Position& start, const Position& end, bool detail);
 	Node *getNode(unsigned x, unsigned y);
 
 
@@ -344,7 +346,7 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 	wrkmem.clear();
 }
 
-template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Node& start, const Node& end, bool detail)
+template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Position& start, const Position& end, bool detail)
 {
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
 		it->second.clearState();
@@ -369,7 +371,7 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const N
 					const unsigned x = next->x, y = next->y;
 					int dx = int(prev->x - x);
 					int dy = int(prev->y - y);
-					JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight diagonal
+					JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
 					const int steps = std::max(abs(dx), abs(dy));
 					dx /= std::max(abs(dx), 1);
 					dy /= std::max(abs(dy), 1);
@@ -397,30 +399,36 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const N
 				while (next);
 			}
 			std::reverse(path.begin() + pos, path.end());
-#ifdef _DEBUG
-			std::cout << "Nodes generated: " << nodegrid.size() << std::endl;
-#endif
 			return true;
 		}
 		identifySuccessors(n);
 	}
 	while (!open.empty());
-#ifdef _DEBUG
-	std::cout << "Nodes generated: " << nodegrid.size() << std::endl;
-#endif
 	return false;
+}
+
+template<typename GRID> void Searcher<GRID>::freeMemory()
+{
+	NodeGrid v;
+	nodegrid.swap(v);
+	// other containers known to be empty.
 }
 
 } // end namespace Internal
 
+using Internal::Searcher;
+
 // GRID: expected to overload operator()(x, y), return true if position is walkable, false if not.
+// detail: If true, create exhaustive step-by-step path.
+//         If false, only return waypoints. Waypoints are guaranteed to be on a straight line (vertically, horizontally, or diagonally),
+//         and there is no obstruction between waypoints.
 template <typename GRID> bool findPath(PathVector& path, const GRID& grid, unsigned startx, unsigned starty, unsigned endx, unsigned endy, bool detail = false)
 {
-	const Internal::Node startNode(startx, starty);
-	const Internal::Node endNode(endx, endy);
-	Internal::Searcher<GRID> search(grid);
-	return search.findPath(path, startNode, endNode, detail);
+	Searcher<GRID> search(grid);
+	return search.findPath(path, Pos(startx, endx), Pos(endx, endy), detail);
 }
+
+
 
 } // end namespace JPS
 
