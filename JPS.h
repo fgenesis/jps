@@ -147,45 +147,32 @@ public:
 		: grid(g)
 	{
 		wrkmem.reserve(8);
-		jumpstack.reserve(32);
 	}
 
 	void freeMemory();
 
 	bool findPath(PathVector& path, const Position& start, const Position& end, bool detail);
-	Node *getNode(unsigned x, unsigned y);
-
 
 private:
-	struct StackEntry
-	{
-		Position pos;
-		Position src;
-		Position ret;
-		unsigned level;
-	};
 
 	typedef std::map<Position, Node> NodeGrid;
-	typedef std::vector<StackEntry> JumpStack;
 
 	const GRID& grid;
-	Node *startNode;
 	Node *endNode;
 	OpenList open;
 	NodeVector wrkmem;
-	JumpStack jumpstack;
-
 
 	NodeGrid nodegrid;
 
+	Node *getNode(unsigned x, unsigned y);
 	Node * _addNodeWrk(unsigned x, unsigned y);
 	void identifySuccessors(const Node *n);
 	void findNeighbors(const Node *n);
 	Node *jump(Node *n, const Node *parent);
-	Position jumpP(const Position& cur, const Position& src);
+	Position jumpP(Position p, const Position& src);
 	Position jumpPRec(const Position& p, const Position& src);
-	Position jumpX(Position cur, int dx);
-	Position jumpY(Position cur, int dy);
+	Position jumpX(Position p, int dx);
+	Position jumpY(Position p, int dy);
 };
 
 template <typename GRID> inline Node *Searcher<GRID>::getNode(unsigned x, unsigned y)
@@ -218,59 +205,75 @@ template <typename GRID> Node *Searcher<GRID>::jump(Node *n, const Node *parent)
 	return p != npos ? getNode(p.x, p.y) : 0;
 }
 
-template <typename GRID> Position Searcher<GRID>::jumpP(const Position& p, const Position& src)
+template <typename GRID> Position Searcher<GRID>::jumpP(Position p, const Position& src)
 {
-	const unsigned x = p.x;
-	const unsigned y = p.y;
-	if(!grid(x, y))
-		return npos;
-	if(p == endNode->pos)
-		return p;
+	JPS_ASSERT(grid(p.x, p.y));
 
-	int dx = int(x - src.x);
-	int dy = int(y - src.y);
+	int dx = int(p.x - src.x);
+	int dy = int(p.y - src.y);
 	JPS_ASSERT(dx || dy);
 
-	if(dx && dy)
-	{
-		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
-			return p;
-	}
-	else if(dx)
-	{
-		if( (grid(x+dx, y+1) && !grid(x, y+1)) || (grid(x+dx, y-1) && !grid(x, y-1)) )
-			return p;
-	}
-	else if(dy)
-	{
-		if( (grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy) && !grid(x-1, y)) )
-			return p;
-	}
+	const Position& endpos = endNode->pos;
 
-	const bool gdx = grid(x+dx, y);
-	const bool gdy = grid(x, y+dy);
-
-	if(dx && dy)
+	loopstart:
+	do
 	{
-		if(gdx && jumpX(Pos(x+dx, y), dx) != npos)
+		if(p == endpos)
 			return p;
 
-		if(gdy && jumpY(Pos(x, y+dy), dy) != npos)
-			return p;
-	}
+		const unsigned x = p.x;
+		const unsigned y = p.y;
 
-	if((gdx || gdy) && grid(x+dx, y+dy))
-		return jumpP(Pos(x+dx, y+dy), p);
+		if(dx && dy)
+		{
+			if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
+				return p;
+		}
+		else if(dx)
+		{
+			if( (grid(x+dx, y+1) && !grid(x, y+1)) || (grid(x+dx, y-1) && !grid(x, y-1)) )
+				return p;
+		}
+		else if(dy)
+		{
+			if( (grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy) && !grid(x-1, y)) )
+				return p;
+		}
+
+		const bool gdx = !dx || grid(x+dx, y);
+		const bool gdy = !dy || grid(x, y+dy);
+
+		if(dx && dy)
+		{
+			if(gdx && jumpX(Pos(x+dx, y), dx) != npos)
+				return p;
+
+			if(gdy && jumpY(Pos(x, y+dy), dy) != npos)
+				return p;
+		}
+
+		if((gdx || gdy) && grid(x+dx, y+dy))
+		{
+			p.x += dx;
+			p.y += dy;
+			goto loopstart;
+		}
+	}
+	while(0);
 
 	return npos;
 }
 
 template <typename GRID> Position Searcher<GRID>::jumpX(Position p, int dx)
 {
+	JPS_ASSERT(dx);
+	JPS_ASSERT(grid(p.x, p.y));
+
 	const unsigned y = p.y;
+	const Position& endpos = endNode->pos;
 	while(true)
 	{
-		if(p == endNode->pos)
+		if(p == endpos)
 			return p;
 
 		const unsigned x = p.x;
@@ -289,10 +292,14 @@ template <typename GRID> Position Searcher<GRID>::jumpX(Position p, int dx)
 
 template <typename GRID> Position Searcher<GRID>::jumpY(Position p, int dy)
 {
+	JPS_ASSERT(dy);
+	JPS_ASSERT(grid(p.x, p.y));
+
 	const unsigned x = p.x;
+	const Position& endpos = endNode->pos;
 	while(true)
 	{
-		if(p == endNode->pos)
+		if(p == endpos)
 			return p;
 
 		const unsigned y = p.y;
@@ -461,12 +468,15 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 		it->second.clearState();
 
 	// If start or end point are obstructed, don't even start
-	if(!(startNode = getNode(start.x, start.y)))
-		return false;
-	if(!(endNode = getNode(end.x, end.y)))
-		return false;
+	{
+		Node *startNode = getNode(start.x, start.y);
+		if(!startNode)
+			return false;
+		if(!(endNode = getNode(end.x, end.y)))
+			return false;
+		open.push(startNode);
+	}
 
-	open.push(startNode);
 	do
 	{
 		Node *n = open.pop();
