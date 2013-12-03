@@ -55,13 +55,13 @@ struct MapGrid
 
 static float pathcost(const JPS::PathVector& path)
 {
-	unsigned lastx = path[0].first;
-	unsigned lasty = path[0].second;
+	unsigned lastx = path[0].x;
+	unsigned lasty = path[0].y;
 	float accu = 0;
 	for(size_t i = 1; i < path.size(); ++i)
 	{
-		unsigned x = path[i].first;
-		unsigned y = path[i].second;
+		unsigned x = path[i].x;
+		unsigned y = path[i].y;
 
 		int dx = int(x - lastx);
 		int dy = int(y - lasty);

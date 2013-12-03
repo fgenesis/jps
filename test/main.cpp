@@ -111,7 +111,7 @@ int main(int argc, char **argv)
 	{
 		unsigned c = 0;
 		for(JPS::PathVector::iterator it = path.begin(); it != path.end(); ++it)
-			PUT(it->first, it->second, (c++ % 26) + 'a');
+			PUT(it->x, it->y, (c++ % 26) + 'a');
 	}
 
 	for(unsigned i = 0; i < grid.h; ++i)

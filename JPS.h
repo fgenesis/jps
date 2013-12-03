@@ -19,15 +19,44 @@
 
 namespace JPS {
 
-typedef std::vector<std::pair<unsigned, unsigned> > PathVector;
+struct Position
+{
+	unsigned x, y;
+
+	inline bool operator==(const Position& p) const
+	{
+		return x == p.x && y == p.y;
+	}
+
+	// for sorting
+	inline bool operator<(const Position& p) const
+	{
+		return y < p.y || (y == p.y && x < p.x);
+	}
+};
+
+typedef std::vector<Position> PathVector;
+
+// ctor function to keep Position a real POD struct.
+inline static Position Pos(unsigned x, unsigned y)
+{
+	Position p;
+	p.x = x;
+	p.y = y;
+	return p;
+}
 
 namespace Internal {
 class Node
 {
 public:
 	Node() {}
-	Node(unsigned x, unsigned y) : parent(0), x(x), y(y), f(0), g(0), flags(0) {}
-	unsigned x, y;
+	Node(unsigned x, unsigned y) : pos(Pos(x, y)), f(0), g(0), parent(0), flags(0) {}
+	union
+	{
+		struct { unsigned x, y; };
+		Position pos;
+	};
 	unsigned f, g;
 	const Node *parent;
 
@@ -35,14 +64,12 @@ public:
 	inline void setClosed() { flags |= 2; }
 	inline unsigned char isOpen() const { return flags & 1; }
 	inline unsigned char isClosed() const { return flags & 2; }
-	inline void clearState() { flags = 0; f = 0; g = 0; }
+	inline void clearState() { f = 0; g = 0, parent = 0; flags = 0; }
 
-	inline bool operator==(const Node& o)
-	{
-		return x == o.x && y == o.y;
-	}
 private:
 	unsigned char flags;
+
+	bool operator==(const Node& o); // not implemented, nodes should not be compared
 };
 } // end namespace Internal
 
@@ -113,7 +140,7 @@ public:
 		: grid(g)
 	{}
 
-	bool findPath(std::vector<std::pair<unsigned, unsigned> >& path, const Node& start, const Node& end, bool detail);
+	bool findPath(PathVector& path, const Node& start, const Node& end, bool detail);
 	Node *getNode(unsigned x, unsigned y);
 
 
@@ -124,7 +151,7 @@ private:
 	OpenList open;
 	NodeVector wrkmem;
 
-	typedef std::map<std::pair<unsigned, unsigned>, Node> NodeGrid;
+	typedef std::map<Position, Node> NodeGrid;
 	NodeGrid nodegrid;
 
 	Node * _addNodeWrk(unsigned x, unsigned y);
@@ -137,10 +164,10 @@ template <typename GRID> inline Node *Searcher<GRID>::getNode(unsigned x, unsign
 {
 	if(grid(x, y))
 	{
-		NodeGrid::iterator it = nodegrid.find(std::make_pair(x, y));
+		NodeGrid::iterator it = nodegrid.find(Pos(x, y));
 		if(it == nodegrid.end())
 		{
-			NodeGrid::iterator ins = nodegrid.insert(it, std::make_pair(std::make_pair(x, y), Node(x, y)));
+			NodeGrid::iterator ins = nodegrid.insert(it, std::make_pair(Pos(x, y), Node(x, y)));
 			return &ins->second;
 		}
 		return &it->second;
@@ -304,7 +331,7 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 	wrkmem.clear();
 }
 
-template <typename GRID> bool Searcher<GRID>::findPath(std::vector<std::pair<unsigned, unsigned> >& path, const Node& start, const Node& end, bool detail)
+template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Node& start, const Node& end, bool detail)
 {
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
 		it->second.clearState();
@@ -336,7 +363,7 @@ template <typename GRID> bool Searcher<GRID>::findPath(std::vector<std::pair<uns
 					int dxa = 0, dya = 0;
 					for(int i = 0; i < steps; ++i)
 					{
-						path.push_back(std::make_pair(x+dxa, y+dya));
+						path.push_back(Pos(x+dxa, y+dya));
 						dxa += dx;
 						dya += dy;
 					}
@@ -344,14 +371,14 @@ template <typename GRID> bool Searcher<GRID>::findPath(std::vector<std::pair<uns
 					prev = prev->parent;
 				}
 				while (prev);
-				path.push_back(std::make_pair(next->x, next->y));
+				path.push_back(Pos(next->x, next->y));
 			}
 			else
 			{
 				const Node *next = n;
 				do
 				{
-					path.push_back(std::make_pair(next->x, next->y));
+					path.push_back(Pos(next->x, next->y));
 					next = next->parent;
 				}
 				while (next);
