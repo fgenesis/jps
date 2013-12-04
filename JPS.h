@@ -1,9 +1,68 @@
 #ifndef JUMP_POINT_SEARCH_H
 #define JUMP_POINT_SEARCH_H
 
-// Jump point search implementation
+// Public domain Jump Point Search implementation by False.Genesis
+// Please keep the following source information intact when you use this file in your own projects:
+// This file originates from: https://github.com/fgenesis/jps
 // Based on the paper http://users.cecs.anu.edu.au/~dharabor/data/papers/harabor-grastien-aaai11.pdf
-// Jumper (https://github.com/Yonaba/Jumper) served as reference for this implementation.
+// by Daniel Harabor & Alban Grastien.
+// Jumper (https://github.com/Yonaba/Jumper) and PathFinding.js (https://github.com/qiao/PathFinding.js)
+// served as reference for this implementation.
+
+// Usage:
+/*
+// Define a class that overloads `operator()(x, y)`, as so:
+
+struct MyGrid
+{
+	inline operator()(unsigned x, unsigned y) const
+	{
+		if(x < width && y < height)
+			... return true if terrain at (x, y) is walkable.
+	}
+	unsigned width, height;
+};
+
+// Then you can retrieve a path:
+
+MyGrid grid;
+// ... set grid with, height, and whatever
+bool detailed = false; // set this to true if you want a detailed single-step path
+                       // (e.g. if you plan to further mangle the path yourself)
+JPS::PathVector path; // The resulting path will go here.
+
+
+// Single-call interface:
+bool found = JPS::findPath(path, grid, startx, starty, endx, endy, detailed);
+
+
+// Alternatively, if you want more control:
+
+JPS::Searcher<MyGrid> search(grid);
+while(true)
+{
+	// ..stuff happening ...
+
+	// build path incrementally from waypoints
+	JPS::Position a, b, c, d; // some waypoints
+	search.findPath(path, a, b);
+	search.findPath(path, b, c);
+	search.findPath(path, c, d);
+
+	if(search.findPath(path2, JPS::Pos(startx, starty), JPS::Pos(endx, endy), detailed))
+	{
+		// ...handle failure...
+	}
+	// ... more stuff happening ...
+
+	// At convenient times, you can clean up accumulated nodes to reclaim memory.
+	// This is never necessary, but performance will drop if too many cached nodes exist.
+	if(mapWasReloaded)
+		search.freeMemory();
+}
+
+*/
+
 
 #include <algorithm>
 #include <vector>
@@ -16,6 +75,9 @@
 #else
 #define JPS_ASSERT(cond)
 #endif
+
+// If this is defined, compare all jumps against recursive reference implementation (only if _DEBUG is defined)
+//#define JPS_VERIFY
 
 namespace JPS {
 
@@ -151,7 +213,7 @@ public:
 
 	void freeMemory();
 
-	bool findPath(PathVector& path, const Position& start, const Position& end, bool detail);
+	bool findPath(PathVector& path, const Position& start, const Position& end, bool detail = false);
 
 private:
 
@@ -170,20 +232,23 @@ private:
 	void findNeighbors(const Node *n);
 	Node *jump(Node *n, const Node *parent);
 	Position jumpP(Position p, const Position& src);
-	Position jumpPRec(const Position& p, const Position& src);
 	Position jumpD(Position p, int dx, int dy);
 	Position jumpX(Position p, int dx);
 	Position jumpY(Position p, int dy);
+#ifdef JPS_VERIFY
+	Position jumpPRec(const Position& p, const Position& src);
+#endif
 };
 
 template <typename GRID> inline Node *Searcher<GRID>::getNode(unsigned x, unsigned y)
 {
 	if(grid(x, y))
 	{
-		NodeGrid::iterator it = nodegrid.find(Pos(x, y));
+		const Position p = Pos(x, y);
+		NodeGrid::iterator it = nodegrid.find(p);
 		if(it == nodegrid.end())
 		{
-			NodeGrid::iterator ins = nodegrid.insert(it, std::make_pair(Pos(x, y), Node(x, y)));
+			NodeGrid::iterator ins = nodegrid.insert(it, std::make_pair(p, Node(x, y)));
 			return &ins->second;
 		}
 		return &it->second;
@@ -202,7 +267,9 @@ template <typename GRID> inline Node *Searcher<GRID>::_addNodeWrk(unsigned x, un
 template <typename GRID> Node *Searcher<GRID>::jump(Node *n, const Node *parent)
 {
 	Position p = jumpP(n->pos, parent->pos);
+#ifdef JPS_VERIFY
 	JPS_ASSERT(p == jumpPRec(n->pos, parent->pos));
+#endif
 	return p != npos ? getNode(p.x, p.y) : 0;
 }
 
@@ -317,6 +384,8 @@ template <typename GRID> Position Searcher<GRID>::jumpY(Position p, int dy)
 	return npos;
 }
 
+#ifdef JPS_VERIFY
+// Recursive reference implementation -- for comparison only
 template <typename GRID> Position Searcher<GRID>::jumpPRec(const Position& p, const Position& src)
 {
 	unsigned x = p.x;
@@ -359,6 +428,7 @@ template <typename GRID> Position Searcher<GRID>::jumpPRec(const Position& p, co
 
 	return npos;
 }
+#endif
 
 template <typename GRID> void Searcher<GRID>::findNeighbors(const Node *n)
 {
@@ -463,7 +533,7 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 	wrkmem.clear();
 }
 
-template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Position& start, const Position& end, bool detail)
+template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Position& start, const Position& end, bool detail /* = false */)
 {
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
 		it->second.clearState();
@@ -551,7 +621,11 @@ template<typename GRID> void Searcher<GRID>::freeMemory()
 
 using Internal::Searcher;
 
-// GRID: expected to overload operator()(x, y), return true if position is walkable, false if not.
+// path: If the function returns true, the path is stored in this vector.
+//       The vector does not have to be empty. The function does not clear it;
+//       instead, the new path positions are appended at the end.
+//       This allows building a path incrementally.
+// grid: expected to overload operator()(x, y), return true if position is walkable, false if not.
 // detail: If true, create exhaustive step-by-step path.
 //         If false, only return waypoints. Waypoints are guaranteed to be on a straight line (vertically, horizontally, or diagonally),
 //         and there is no obstruction between waypoints.
