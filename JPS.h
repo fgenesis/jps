@@ -539,12 +539,9 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 
 	if(start == end)
 	{
-		if(grid(end.x, end.y)) // There is only a path if this single position is walkable.
-		{
-			path.push_back(end);
-			return true;
-		}
-		return false;
+		// There is only a path if this single position is walkable.
+		// But since the starting position is omitted, there is nothing to do here.
+		return grid(end.x, end.y);
 	}
 
 	// If start or end point are obstructed, don't even start
