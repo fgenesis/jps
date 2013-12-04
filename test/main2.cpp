@@ -3,6 +3,7 @@
 #include "ScenarioLoader.h"
 #include <fstream>
 #include <stdlib.h>
+#include <assert.h>
 
 // Testing material from http://www.movingai.com/benchmarks/
 
@@ -61,6 +62,7 @@ static double pathcost(unsigned startx, unsigned starty, const JPS::PathVector& 
 	unsigned lastx = startx;
 	unsigned lasty = starty;
 	double accu = 0;
+	assert(path.empty() || path[0] != JPS::Pos(startx, starty));
 	for(size_t i = 0; i < path.size(); ++i)
 	{
 		unsigned x = path[i].x;

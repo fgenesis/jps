@@ -192,6 +192,10 @@ public:
 	{
 		return nodes.empty();
 	}
+	inline void clear()
+	{
+		nodes.clear();
+	}
 	inline void fixup(const Node *item)
 	{
 		std::make_heap(nodes.begin(), nodes.end(), _compare);
@@ -246,6 +250,7 @@ private:
 	Position jumpD(Position p, int dx, int dy) const;
 	Position jumpX(Position p, int dx) const;
 	Position jumpY(Position p, int dy) const;
+	void generatePath(PathVector& path, bool detail) const;
 #ifdef JPS_VERIFY
 	Position jumpPRec(const Position& p, const Position& src) const;
 #endif
@@ -546,6 +551,47 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 	}
 }
 
+template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, bool detail) const
+{
+	size_t offset = path.size();
+	if(detail)
+	{
+		const Node *next = endNode;
+		const Node *prev = endNode->parent;
+		do
+		{
+			const unsigned x = next->pos.x, y = next->pos.y;
+			int dx = int(prev->pos.x - x);
+			int dy = int(prev->pos.y - y);
+			JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
+			const int steps = std::max(abs(dx), abs(dy)); // leave out starting position
+			dx /= std::max(abs(dx), 1);
+			dy /= std::max(abs(dy), 1);
+			int dxa = 0, dya = 0;
+			for(int i = 0; i < steps; ++i)
+			{
+				path.push_back(Pos(x+dxa, y+dya));
+				dxa += dx;
+				dya += dy;
+			}
+			next = prev;
+			prev = prev->parent;
+		}
+		while (prev);
+	}
+	else
+	{
+		const Node *next = endNode;
+		do
+		{
+			path.push_back(next->pos);
+			next = next->parent;
+		}
+		while (next->parent);
+	}
+	std::reverse(path.begin() + offset, path.end());
+}
+
 template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Position& start, const Position& end, bool detail /* = false */)
 {
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
@@ -572,48 +618,8 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 		n->setClosed();
 		if(n == endNode)
 		{
-			size_t offset = path.size();
-			if(detail)
-			{
-				const Node *next = n;
-				const Node *prev = n->parent;
-				bool first = true;
-				do
-				{
-					const unsigned x = next->pos.x, y = next->pos.y;
-					int dx = int(prev->pos.x - x);
-					int dy = int(prev->pos.y - y);
-					JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
-					const int steps = std::max(abs(dx), abs(dy));
-					dx /= std::max(abs(dx), 1);
-					dy /= std::max(abs(dy), 1);
-					int dxa = 0, dya = 0;
-					for(int i = 0; i < steps; ++i)
-					{
-						if(first)
-							first = false;
-						else
-							path.push_back(Pos(x+dxa, y+dya));
-						dxa += dx;
-						dya += dy;
-					}
-					next = prev;
-					prev = prev->parent;
-				}
-				while (prev);
-				path.push_back(next->pos);
-			}
-			else
-			{
-				const Node *next = n;
-				do
-				{
-					path.push_back(next->pos);
-					next = next->parent;
-				}
-				while (next->parent);
-			}
-			std::reverse(path.begin() + offset, path.end());
+			open.clear();
+			generatePath(path, detail);
 			return true;
 		}
 		identifySuccessors(n);
@@ -634,7 +640,7 @@ template<typename GRID> void Searcher<GRID>::freeMemory()
 using Internal::Searcher;
 
 // path: If the function returns true, the path is stored in this vector.
-//       The path does NOT contain the starting position.
+//       The path does NOT contain the starting position, i.e. if start and end are the same, the resulting path has no elements.
 //       The vector does not have to be empty. The function does not clear it;
 //       instead, the new path positions are appended at the end.
 //       This allows building a path incrementally.
