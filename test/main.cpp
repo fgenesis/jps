@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 	JPS::PathVector path;
 	for(size_t i = 1; i < waypoints.size(); ++i)
 	{
-		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, true);
+		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, argc > 1);
 		if(!found)
 		{
 			std::cout << "Path not found!" << std::endl;

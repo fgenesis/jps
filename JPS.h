@@ -61,6 +61,7 @@ while(true)
 		search.freeMemory();
 }
 
+// Further remarks can be found at the bottom of this file.
 */
 
 
@@ -118,13 +119,8 @@ namespace Internal {
 class Node
 {
 public:
-	Node() {}
 	Node(unsigned x, unsigned y) : pos(Pos(x, y)), f(0), g(0), parent(0), flags(0) {}
-	union
-	{
-		struct { unsigned x, y; };
-		Position pos;
-	};
+	const Position pos;
 	unsigned f, g;
 	const Node *parent;
 
@@ -145,13 +141,13 @@ namespace Heuristic
 {
 	inline unsigned Manhattan(const Internal::Node *a, const Internal::Node *b)
 	{
-		return abs(int(a->x - b->x)) + abs(int(a->y - b->y));
+		return abs(int(a->pos.x - b->pos.x)) + abs(int(a->pos.y - b->pos.y));
 	}
 
 	inline unsigned Euclidean(const Internal::Node *a, const Internal::Node *b)
 	{
-		float fx = float(int(a->x - b->x));
-		float fy = float(int(a->y - b->y));
+		float fx = float(int(a->pos.x - b->pos.x));
+		float fy = float(int(a->pos.y - b->pos.y));
 		return unsigned(int(sqrtf(fx*fx + fy*fy)));
 	}
 } // end namespace heuristic
@@ -432,8 +428,8 @@ template <typename GRID> Position Searcher<GRID>::jumpPRec(const Position& p, co
 
 template <typename GRID> void Searcher<GRID>::findNeighbors(const Node *n)
 {
-	const unsigned x = n->x;
-	const unsigned y = n->y;
+	const unsigned x = n->pos.x;
+	const unsigned y = n->pos.y;
 	wrkmem.clear();
 
 #define JPS_CHECKGRID(dx, dy) (grid(x+(dx), y+(dy)))
@@ -458,9 +454,9 @@ template <typename GRID> void Searcher<GRID>::findNeighbors(const Node *n)
 	}
 
 	// jump directions (both -1, 0, or 1)
-	int dx = x - n->parent->x;
+	int dx = int(x - n->parent->pos.x);
 	dx /= std::max(abs(dx), 1);
-	int dy = y - n->parent->y;
+	int dy = int(y - n->parent->pos.y);
 	dy /= std::max(abs(dy), 1);
 
 	if(dx && dy)
@@ -511,6 +507,7 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 	{
 		Node *nb = *it;
 		Node *jn = jump(nb, n);
+		JPS_ASSERT(jn != n);
 		if(jn && !jn->isClosed())
 		{
 			unsigned extraG = Heuristic::Euclidean(jn, n);
@@ -564,16 +561,17 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 		n->setClosed();
 		if(n == endNode)
 		{
-			size_t pos = path.size();
+			size_t offset = path.size();
 			if(detail)
 			{
 				const Node *next = n;
 				const Node *prev = n->parent;
+				bool first = true;
 				do
 				{
-					const unsigned x = next->x, y = next->y;
-					int dx = int(prev->x - x);
-					int dy = int(prev->y - y);
+					const unsigned x = next->pos.x, y = next->pos.y;
+					int dx = int(prev->pos.x - x);
+					int dy = int(prev->pos.y - y);
 					JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
 					const int steps = std::max(abs(dx), abs(dy));
 					dx /= std::max(abs(dx), 1);
@@ -581,7 +579,10 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 					int dxa = 0, dya = 0;
 					for(int i = 0; i < steps; ++i)
 					{
-						path.push_back(Pos(x+dxa, y+dya));
+						if(first)
+							first = false;
+						else
+							path.push_back(Pos(x+dxa, y+dya));
 						dxa += dx;
 						dya += dy;
 					}
@@ -589,19 +590,19 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 					prev = prev->parent;
 				}
 				while (prev);
-				path.push_back(Pos(next->x, next->y));
+				path.push_back(next->pos);
 			}
 			else
 			{
 				const Node *next = n;
 				do
 				{
-					path.push_back(Pos(next->x, next->y));
+					path.push_back(next->pos);
 					next = next->parent;
 				}
-				while (next);
+				while (next->parent);
 			}
-			std::reverse(path.begin() + pos, path.end());
+			std::reverse(path.begin() + offset, path.end());
 			return true;
 		}
 		identifySuccessors(n);
@@ -622,6 +623,7 @@ template<typename GRID> void Searcher<GRID>::freeMemory()
 using Internal::Searcher;
 
 // path: If the function returns true, the path is stored in this vector.
+//       The path does NOT contain the starting position.
 //       The vector does not have to be empty. The function does not clear it;
 //       instead, the new path positions are appended at the end.
 //       This allows building a path incrementally.

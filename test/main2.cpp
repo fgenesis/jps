@@ -6,15 +6,6 @@
 
 // Testing material from http://www.movingai.com/benchmarks/
 
-const char *scenarios[] =
-{
-	"maps/AR0011SR.map.scen",
-	"maps/den011d.map.scen",
-	"maps/den602d.map.scen",
-	"maps/hrt201n.map.scen",
-	NULL
-};
-
 static void die(const char *msg)
 {
 	std::cerr << msg << std::endl;
@@ -63,12 +54,12 @@ struct MapGrid
 	std::vector<std::string> lines;
 };
 
-static float pathcost(const JPS::PathVector& path)
+static double pathcost(unsigned startx, unsigned starty, const JPS::PathVector& path)
 {
-	unsigned lastx = path[0].x;
-	unsigned lasty = path[0].y;
-	float accu = 0;
-	for(size_t i = 1; i < path.size(); ++i)
+	unsigned lastx = startx;
+	unsigned lasty = starty;
+	double accu = 0;
+	for(size_t i = 0; i < path.size(); ++i)
 	{
 		unsigned x = path[i].x;
 		unsigned y = path[i].y;
@@ -76,7 +67,7 @@ static float pathcost(const JPS::PathVector& path)
 		int dx = int(x - lastx);
 		int dy = int(y - lasty);
 
-		accu += sqrtf(float(dx*dx + dy*dy));
+		accu += sqrt(float(dx*dx + dy*dy));
 		
 		lastx = x;
 		lasty = y;
@@ -84,12 +75,13 @@ static float pathcost(const JPS::PathVector& path)
 	return accu;
 }
 
-void runScenario(const char *file)
+double runScenario(const char *file)
 {
 	ScenarioLoader loader(file);
 	if(!loader.GetNumExperiments())
 		die(file);
 	MapGrid grid(loader.GetNthExperiment(0).GetMapName());
+	double sum = 0;
 	for(int i = 0; i < loader.GetNumExperiments(); ++i)
 	{
 		Experiment ex = loader.GetNthExperiment(i);
@@ -98,18 +90,24 @@ void runScenario(const char *file)
 		if(!found)
 			die("Path not found");
 
-		float cost = pathcost(path);
+		// Starting position is NOT included in vector
+		double cost = pathcost(ex.GetStartX(), ex.GetStartY(), path);
 
-		printf("Path len: %.3f; Expected: %.3f\n", cost, ex.GetDistance());
 		if(cost > ex.GetDistance()+0.5f)
-			printf(" -- PATH TOO LONG\n");
+			printf("[%s:%d] Path len: %.3f; Expected: %.3f; Diff: %.3f\n", file, i, cost, ex.GetDistance(), fabs(cost - ex.GetDistance()));
+
+		sum += cost;
 	}
+	return sum;
 }
 
 int main(int argc, char **argv)
 {
-	for(unsigned i = 0; scenarios[i]; ++i)
-		runScenario(scenarios[i]);
+	double sum = 0;
+	for(int i = 1; i < argc; ++i)
+		sum += runScenario(argv[i]);
+
+	std::cout << "Total distance travelled: " << sum << std::endl;
 
 	return 0;
 }
