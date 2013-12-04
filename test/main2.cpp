@@ -30,8 +30,10 @@ struct MapGrid
 			if(s.length() == w)
 				lines.push_back(s);
 
+		if(h != lines.size())
+			die("Wrong number of lines");
+
 		std::cout << "W: " << w << "; H: " << h << "; Total cells: " << (w*h) << std::endl;
-		std::cout << "Lines: " << lines.size() << std::endl;
 	}
 
 	bool operator()(unsigned x, unsigned y) const
