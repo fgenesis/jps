@@ -545,6 +545,9 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const P
 	}
 
 	// If start or end point are obstructed, don't even start
+	if(!grid(start.x, start.y) || !grid(end.x, end.y))
+		return false;
+
 	{
 		Node *startNode = getNode(start.x, start.y);
 		if(!startNode)
