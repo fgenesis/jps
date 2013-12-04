@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <string.h>
+#include <assert.h>
 
 static const char *data[] =
 {
