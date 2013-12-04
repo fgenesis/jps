@@ -3,36 +3,24 @@
 #include <string>
 #include <string.h>
 
-/*
-static const char *data[] =
-{
-	"############",
-	"#   #      #",
-	"# s #  ### #",
-	"#   #  # e #",
-	"#      #   #",
-	"############",
-	NULL
-};
-*/
-
 static const char *data[] =
 {
 	"##############################################",
 	"#                           #                #",
 	"#                   #       #        #####   #",
 	"#                   #       #       ##       #",
-	"#                   #   e   #      ##        #",
-	"#                   #       #     ##         #",
-	"#                   #      ##    ##          #",
+	"#                   #   2   #      ##        #",
+	"#                   #       #     ##5        #",
+	"#                   #      ##    ######      #",
 	"#      ##############           ##           #",
-	"#                   #           #            #",
+	"#                  3#           #            #",
 	"#                   #############            #",
 	"#               #####                        #",
-	"#                                            #",
-	"#                 #                     s    #",
-	"#                 #                          #",
+	"#                                        #####",
+	"#                 #                        1 #",
+	"#                 #         4                #",
 	"##############################################",
+	NULL
 };
 
 struct MyGrid
@@ -84,41 +72,39 @@ int main(int argc, char **argv)
 {
 	MyGrid grid(data);
 
-	unsigned startx, starty, endx, endy;
-	for(unsigned y = 0; y < grid.h; ++y)
+	JPS::PathVector waypoints;
+	for(char a = '1'; a <= '9'; ++a)
 	{
-		const char *s = data[y];
-		const char *sp = strchr(s, 's');
-		if(sp)
+		for(unsigned y = 0; y < grid.h; ++y)
 		{
-			startx = sp - s;
-			starty = y;
-		}
-		const char *ep = strchr(s, 'e');
-		if(ep)
-		{
-			endx = ep - s;
-			endy = y;
+			const char *sp = strchr(data[y], a);
+			if(sp)
+			{
+				waypoints.push_back(JPS::Pos(sp - data[y], y));
+			}
 		}
 	}
+
+	JPS::PathVector path;
+	for(size_t i = 1; i < waypoints.size(); ++i)
+	{
+		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, true);
+		if(!found)
+		{
+			std::cout << "Path not found!" << std::endl;
+			break;
+		}
+	}
+
 
 #define PUT(x, y, v) (grid.out[(y)][(x)] = (v))
 
-	JPS::PathVector path;
-	bool found = JPS::findPath(path, grid, startx, starty, endx, endy, true);
-
-	if(found)
-	{
-		unsigned c = 0;
-		for(JPS::PathVector::iterator it = path.begin(); it != path.end(); ++it)
-			PUT(it->x, it->y, (c++ % 26) + 'a');
-	}
+	unsigned c = 0;
+	for(JPS::PathVector::iterator it = path.begin(); it != path.end(); ++it)
+		PUT(it->x, it->y, (c++ % 26) + 'a');
 
 	for(unsigned i = 0; i < grid.h; ++i)
 		std::cout << grid.out[i] << std::endl;
 
-	if(!found)
-		std::cout << "No path found!" << std::endl;
-
-	return found ? 0 : 1;
+	return 0;
 }

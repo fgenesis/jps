@@ -4,6 +4,16 @@
 #include <fstream>
 #include <stdlib.h>
 
+// Testing material from http://www.movingai.com/benchmarks/
+
+const char *scenarios[] =
+{
+	"maps/AR0011SR.map.scen",
+	"maps/den011d.map.scen",
+	"maps/den602d.map.scen",
+	"maps/hrt201n.map.scen",
+	NULL
+};
 
 static void die(const char *msg)
 {
@@ -74,9 +84,11 @@ static float pathcost(const JPS::PathVector& path)
 	return accu;
 }
 
-int main(int argc, char **argv)
+void runScenario(const char *file)
 {
-	ScenarioLoader loader("maps/AR0011SR.map.scen");
+	ScenarioLoader loader(file);
+	if(!loader.GetNumExperiments())
+		die(file);
 	MapGrid grid(loader.GetNthExperiment(0).GetMapName());
 	for(int i = 0; i < loader.GetNumExperiments(); ++i)
 	{
@@ -92,6 +104,13 @@ int main(int argc, char **argv)
 		if(cost > ex.GetDistance()+0.5f)
 			printf(" -- PATH TOO LONG\n");
 	}
+}
+
+int main(int argc, char **argv)
+{
+	for(unsigned i = 0; scenarios[i]; ++i)
+		runScenario(scenarios[i]);
 
 	return 0;
 }
+
