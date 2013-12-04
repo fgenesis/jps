@@ -28,7 +28,7 @@ struct MyGrid
 // Then you can retrieve a path:
 
 MyGrid grid;
-// ... set grid with, height, and whatever
+// ... set grid width, height, and whatever
 bool detailed = false; // set this to true if you want a detailed single-step path
                        // (e.g. if you plan to further mangle the path yourself)
 JPS::PathVector path; // The resulting path will go here.
