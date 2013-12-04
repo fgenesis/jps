@@ -11,13 +11,15 @@
 
 // Usage:
 /*
-// Define a class that overloads `operator()(x, y)`, as so:
+// Define a class that overloads `operator()(x, y) const`, returning a value that can be treated as boolean.
+// You are responsible for bounds checking!
+// You want your operator() to be as fast as possible, as it will be called a LOT.
 
 struct MyGrid
 {
-	inline operator()(unsigned x, unsigned y) const
+	inline bool operator()(unsigned x, unsigned y) const
 	{
-		if(x < width && y < height)
+		if(x < width && y < height) // Unsigned will wrap if < 0
 			... return true if terrain at (x, y) is walkable.
 	}
 	unsigned width, height;
