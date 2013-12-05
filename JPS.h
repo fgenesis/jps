@@ -341,23 +341,30 @@ template <typename GRID> inline Position Searcher<GRID>::jumpX(Position p, int d
 
 	const unsigned y = p.y;
 	const Position& endpos = endNode->pos;
+
+	unsigned a, b;
+	a = !!grid(p.x, y+1);
+	b = !!grid(p.x, y-1);
+
 	while(true)
 	{
+		const unsigned xx = p.x + dx;
+		const unsigned c = !!grid(xx, y+1);
+		const unsigned d = !!grid(xx, y-1);
+
+		if((c & ~a) | (d & ~b))
+			return p;
+
+		a = c;
+		b = d;
+
 		if(p == endpos)
 			return p;
+		if(!grid(xx, y))
+			return npos;
 
-		const unsigned x = p.x;
-
-		if((grid(x+dx, y+1) && !grid(x, y+1) ) || (grid(x+dx, y-1)  && !grid(x, y-1)))
-			return p;
-
-		if(grid(x+dx, y))
-			p.x += dx;
-		else
-			break;
+		p.x += dx;
 	}
-
-	return npos;
 }
 
 template <typename GRID> inline Position Searcher<GRID>::jumpY(Position p, int dy) const
@@ -367,23 +374,29 @@ template <typename GRID> inline Position Searcher<GRID>::jumpY(Position p, int d
 
 	const unsigned x = p.x;
 	const Position& endpos = endNode->pos;
+
+	unsigned a, b;
+	a = !!grid(x+1, p.y);
+	b = !!grid(x-1, p.y);
+
 	while(true)
 	{
+		const unsigned yy = p.y + dy;
+		const unsigned d = !!grid(x-1, yy);
+		const unsigned c = !!grid(x+1, yy);
+		if((c & ~a) | (d & ~b))
+			return p;
+
+		a = c;
+		b = d;
+
 		if(p == endpos)
 			return p;
+		if(!grid(x, yy))
+			return npos;
 
-		const unsigned y = p.y;
-
-		if(((grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy)  && !grid(x-1, y))))
-			return p;
-
-		if(grid(x, y+dy))
-			p.y += dy;
-		else
-			break;
+		p.y += dy;
 	}
-
-	return npos;
 }
 
 #ifdef JPS_VERIFY
