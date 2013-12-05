@@ -342,28 +342,20 @@ template <typename GRID> inline Position Searcher<GRID>::jumpX(Position p, int d
 	const unsigned y = p.y;
 	const Position& endpos = endNode->pos;
 
-	unsigned a, b;
-	a = !!grid(p.x, y+1);
-	b = !!grid(p.x, y-1);
+	unsigned a = ~((!!grid(p.x, y+1)) | ((!!grid(p.x, y-1)) << 1));
 
 	while(true)
 	{
 		const unsigned xx = p.x + dx;
-		const unsigned c = !!grid(xx, y+1);
-		const unsigned d = !!grid(xx, y-1);
+		const unsigned b = (!!grid(xx, y+1)) | ((!!grid(xx, y-1)) << 1);
 
-		if((c & ~a) | (d & ~b))
-			return p;
-
-		a = c;
-		b = d;
-
-		if(p == endpos)
+		if((b & a) || p == endpos)
 			return p;
 		if(!grid(xx, y))
 			return npos;
 
 		p.x += dx;
+		a = ~b;
 	}
 }
 
@@ -375,27 +367,20 @@ template <typename GRID> inline Position Searcher<GRID>::jumpY(Position p, int d
 	const unsigned x = p.x;
 	const Position& endpos = endNode->pos;
 
-	unsigned a, b;
-	a = !!grid(x+1, p.y);
-	b = !!grid(x-1, p.y);
+	unsigned a = ~((!!grid(x+1, p.y)) | ((!!grid(x-1, p.y)) << 1));
 
 	while(true)
 	{
 		const unsigned yy = p.y + dy;
-		const unsigned d = !!grid(x-1, yy);
-		const unsigned c = !!grid(x+1, yy);
-		if((c & ~a) | (d & ~b))
-			return p;
+		const unsigned b = (!!grid(x+1, yy)) | ((!!grid(x-1, yy)) << 1);
 
-		a = c;
-		b = d;
-
-		if(p == endpos)
+		if((a & b) || p == endpos)
 			return p;
 		if(!grid(x, yy))
 			return npos;
 
 		p.y += dy;
+		a = ~b;
 	}
 }
 
