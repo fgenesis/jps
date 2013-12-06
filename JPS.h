@@ -61,7 +61,7 @@ while(true)
 	search.findPath(path, b, c);
 	search.findPath(path, c, d);
 
-	if(search.findPath(path2, JPS::Pos(startx, starty), JPS::Pos(endx, endy), detailed))
+	if(!search.findPath(path2, JPS::Pos(startx, starty), JPS::Pos(endx, endy), detailed))
 	{
 		// ...handle failure...
 	}
@@ -199,15 +199,6 @@ public:
 	inline void fixup(const Node *item)
 	{
 		std::make_heap(nodes.begin(), nodes.end(), _compare);
-
-		// FIXME: rebuild heap, but only what's necessary
-		/*size_t i = 0;
-		for( ; i < nodes.size(); ++i)
-			if(nodes[i] == item)
-			{
-				std::make_heap(nodes.begin() + i, nodes.end(), _compare);
-				return;
-			}*/
 	}
 
 protected:
@@ -260,19 +251,6 @@ template <typename GRID> inline Node *Searcher<GRID>::getNode(const Position& po
 {
 	JPS_ASSERT(grid(pos.x, pos.y));
 	return &nodegrid.insert(std::make_pair(pos, Node(pos))).first->second;
-
-	/*if(grid(x, y))
-	{
-		const Position p = Pos(x, y);
-		NodeGrid::iterator it = nodegrid.find(p);
-		if(it == nodegrid.end())
-		{
-			NodeGrid::iterator ins = nodegrid.insert(it, std::make_pair(p, Node(x, y)));
-			return &ins->second;
-		}
-		return &it->second;
-	}
-	return 0;*/
 }
 
 template <typename GRID> Position Searcher<GRID>::jumpP(const Position &p, const Position& src) const
@@ -562,7 +540,7 @@ template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, boo
 			int dx = int(prev->pos.x - x);
 			int dy = int(prev->pos.y - y);
 			JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
-			const int steps = std::max(abs(dx), abs(dy)); // leave out starting position
+			const int steps = std::max(abs(dx), abs(dy));
 			dx /= std::max(abs(dx), 1);
 			dy /= std::max(abs(dy), 1);
 			int dxa = 0, dya = 0;
