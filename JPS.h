@@ -415,22 +415,23 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 	const unsigned y = n->pos.y;
 
 #define JPS_CHECKGRID(dx, dy) (grid(x+(dx), y+(dy)))
-#define JPS_ADDPOS(dx, dy) 	do { if(grid(x+(dx), y+(dy))) { *w++ = Pos(x+(dx), y+(dy)); }} while(0)
-#define JPS_ADDPOS_NT(dx, dy) do { if(grid(x+(dx),y) || grid(x,y+(dy))) JPS_ADDPOS(dx, dy); } while(0)
+#define JPS_ADDPOS(dx, dy) 	do { *w++ = Pos(x+(dx), y+(dy)); } while(0)
+#define JPS_ADDPOS_CHECK(dx, dy) do { if(JPS_CHECKGRID(dx, dy)) JPS_ADDPOS(dx, dy); } while(0)
+#define JPS_ADDPOS_NO_TUNNEL(dx, dy) do { if(grid(x+(dx),y) || grid(x,y+(dy))) JPS_ADDPOS_CHECK(dx, dy); } while(0)
 
 	if(!n->parent)
 	{
 		// straight moves
-		JPS_ADDPOS(-1, 0);
-		JPS_ADDPOS(0, -1);
-		JPS_ADDPOS(0, 1);
-		JPS_ADDPOS(1, 0);
+		JPS_ADDPOS_CHECK(-1, 0);
+		JPS_ADDPOS_CHECK(0, -1);
+		JPS_ADDPOS_CHECK(0, 1);
+		JPS_ADDPOS_CHECK(1, 0);
 
 		// diagonal moves + prevent tunneling
-		JPS_ADDPOS_NT(-1, -1);
-		JPS_ADDPOS_NT(-1, 1);
-		JPS_ADDPOS_NT(1, -1);
-		JPS_ADDPOS_NT(1, 1);
+		JPS_ADDPOS_NO_TUNNEL(-1, -1);
+		JPS_ADDPOS_NO_TUNNEL(-1, 1);
+		JPS_ADDPOS_NO_TUNNEL(1, -1);
+		JPS_ADDPOS_NO_TUNNEL(1, 1);
 
 		return unsigned(w - wptr);
 	}
@@ -453,37 +454,48 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 			*w++ = Pos(x, y+dy);
 
 		if(walkX || walkY)
-			JPS_ADDPOS(dx, dy);
+			JPS_ADDPOS_CHECK(dx, dy);
 
 		// forced neighbors
 		if(walkY && !JPS_CHECKGRID(-dx,0))
-			JPS_ADDPOS(-dx, dy);
+			JPS_ADDPOS_CHECK(-dx, dy);
 
 		if(walkX && !JPS_CHECKGRID(0,-dy))
-			JPS_ADDPOS(dx, -dy);
+			JPS_ADDPOS_CHECK(dx, -dy);
 	}
 	else if(dx)
 	{
 		// along X axis
-		JPS_ADDPOS(dx, 0);
-		// Forced neighbors are up and down ahead along X
-		if(!JPS_CHECKGRID(0, 1))
-			JPS_ADDPOS(dx, 1);
-		if(!JPS_CHECKGRID(0,-1))
-			JPS_ADDPOS(dx,-1);
+		if(JPS_CHECKGRID(dx, 0))
+		{
+			JPS_ADDPOS(dx, 0);
+
+			 // Forced neighbors (+ prevent tunneling)
+			if(!JPS_CHECKGRID(0, 1))
+				JPS_ADDPOS_CHECK(dx, 1);
+			if(!JPS_CHECKGRID(0,-1))
+				JPS_ADDPOS_CHECK(dx,-1);
+		}
+
+
 	}
 	else if(dy)
 	{
 		// along Y axis
-		JPS_ADDPOS(0, dy);
-		// Forced neighbors are left and right ahead along Y
-		if(!JPS_CHECKGRID(1, 0))
-			JPS_ADDPOS(1, dy);
-		if(!JPS_CHECKGRID(-1, 0))
-			JPS_ADDPOS(-1,dy);
+		if(JPS_CHECKGRID(0, dy))
+		{
+			JPS_ADDPOS(0, dy);
+
+			// Forced neighbors (+ prevent tunneling)
+			if(!JPS_CHECKGRID(1, 0))
+				JPS_ADDPOS_CHECK(1, dy);
+			if(!JPS_CHECKGRID(-1, 0))
+				JPS_ADDPOS_CHECK(-1,dy);
+		}
 	}
 #undef JPS_ADDPOS
-#undef JPS_ADDPOS_NT
+#undef JPS_ADDPOS_CHECK
+#undef JPS_ADDPOS_NO_TUNNEL
 #undef JPS_CHECKGRID
 
 	return unsigned(w - wptr);
