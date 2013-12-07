@@ -4,4 +4,6 @@ echo "*** Waypoint path: ***"
 echo
 echo "*** Detailed path: ***"
 ./main 1
-
+echo
+echo "*** Every-2nd-step path: ***"
+./main 2

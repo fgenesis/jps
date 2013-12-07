@@ -39,13 +39,14 @@ struct MyGrid
 
 MyGrid grid;
 // ... set grid width, height, and whatever
-bool detailed = false; // set this to true if you want a detailed single-step path
-                       // (e.g. if you plan to further mangle the path yourself)
+unsigned step = 0; // set this to 1 if you want a detailed single-step path
+                   // (e.g. if you plan to further mangle the path yourself),
+                   // or any other higher value to output every Nth position.
 JPS::PathVector path; // The resulting path will go here.
 
 
 // Single-call interface:
-bool found = JPS::findPath(path, grid, startx, starty, endx, endy, detailed);
+bool found = JPS::findPath(path, grid, startx, starty, endx, endy, step);
 
 
 // Alternatively, if you want more control:
@@ -61,7 +62,7 @@ while(true)
 	search.findPath(path, b, c);
 	search.findPath(path, c, d);
 
-	if(!search.findPath(path2, JPS::Pos(startx, starty), JPS::Pos(endx, endy), detailed))
+	if(!search.findPath(path2, JPS::Pos(startx, starty), JPS::Pos(endx, endy), step))
 	{
 		// ...handle failure...
 	}
@@ -218,7 +219,7 @@ public:
 
 	void freeMemory();
 
-	bool findPath(PathVector& path, Position start, Position end, bool detail = false);
+	bool findPath(PathVector& path, Position start, Position end, unsigned step = 0);
 	inline void setSkip(int s) { skip = std::max(1, s); }
 
 private:
@@ -243,7 +244,7 @@ private:
 	Position jumpD(Position p, int dx, int dy) const;
 	Position jumpX(Position p, int dx) const;
 	Position jumpY(Position p, int dy) const;
-	void generatePath(PathVector& path, bool detail) const;
+	void generatePath(PathVector& path, unsigned step) const;
 #ifdef JPS_VERIFY
 	Position jumpPRec(const Position& p, const Position& src) const;
 #endif
@@ -545,10 +546,10 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 	}
 }
 
-template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, bool detail) const
+template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, unsigned step) const
 {
 	size_t offset = path.size();
-	if(detail)
+	if(step)
 	{
 		const Node *next = endNode;
 		const Node *prev = endNode->parent;
@@ -561,8 +562,10 @@ template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, boo
 			const int steps = std::max(abs(dx), abs(dy));
 			dx /= std::max(abs(dx), 1);
 			dy /= std::max(abs(dy), 1);
+			dx *= int(step);
+			dy *= int(step);
 			int dxa = 0, dya = 0;
-			for(int i = 0; i < steps; ++i)
+			for(int i = 0; i < steps; i += step)
 			{
 				path.push_back(Pos(x+dxa, y+dya));
 				dxa += dx;
@@ -586,7 +589,7 @@ template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, boo
 	std::reverse(path.begin() + offset, path.end());
 }
 
-template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Position start, Position end, bool detail /* = false */)
+template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Position start, Position end, unsigned step /* = 0 */)
 {
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
 		it->second.clearState();
@@ -619,7 +622,7 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Positio
 		if(n == endNode)
 		{
 			open.clear();
-			generatePath(path, detail);
+			generatePath(path, step);
 			return true;
 		}
 		identifySuccessors(n);
@@ -639,25 +642,36 @@ template<typename GRID> void Searcher<GRID>::freeMemory()
 
 using Internal::Searcher;
 
+
+// Single-call convenience function
+//
 // path: If the function returns true, the path is stored in this vector.
-//       The path does NOT contain the starting position, i.e. if start and end are the same, the resulting path has no elements.
+//       The path does NOT contain the starting position, i.e. if start and end are the same,
+//       the resulting path has no elements.
 //       The vector does not have to be empty. The function does not clear it;
 //       instead, the new path positions are appended at the end.
 //       This allows building a path incrementally.
+//
 // grid: expected to overload operator()(x, y), return true if position is walkable, false if not.
-// detail: If true, create exhaustive step-by-step path.
-//         If false, only return waypoints. Waypoints are guaranteed to be on a straight line (vertically, horizontally, or diagonally),
-//         and there is no obstruction between waypoints.
+//
+// step: If 0, only return waypoints.
+//       If 1, create exhaustive step-by-step path.
+//       If N, put in one position for N blocks travelled, or when a waypoint is hit.
+//       All returned points are guaranteed to be on a straight line (vertically, horizontally, or diagonally),
+//       and there is no obstruction between any two consecutive points.
+//       Note that this parameter does NOT influence the pathfinding in any way;
+//       it only controls the coarseness of the output path.
+//
 // skip: If you know your map data well enough, this can be set to > 1 to speed up pathfinding even more.
 //       Warning: Start and end positions will be rounded down to the nearest <skip>-aligned position,
 //       so make sure to give appropriate positions so they do not end up in a wall.
 //       This will also skip through walls if they are less than <skip> blocks thick at any reachable position.
-template <typename GRID> bool findPath(PathVector& path, const GRID& grid, unsigned startx, unsigned starty, unsigned endx, unsigned endy, bool detail = false, int skip = 1)
+template <typename GRID> bool findPath(PathVector& path, const GRID& grid, unsigned startx, unsigned starty, unsigned endx, unsigned endy, unsigned step = 0, int skip = 1)
 {
 	JPS_ASSERT(skip >= 1);
 	Searcher<GRID> search(grid);
 	search.setSkip(skip);
-	return search.findPath(path, Pos(startx, starty), Pos(endx, endy), detail);
+	return search.findPath(path, Pos(startx, starty), Pos(endx, endy), step);
 }
 
 
