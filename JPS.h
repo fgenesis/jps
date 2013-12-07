@@ -213,12 +213,13 @@ template <typename GRID> class Searcher
 {
 public:
 	Searcher(const GRID& g)
-		: grid(g)
+		: grid(g), skip(1)
 	{}
 
 	void freeMemory();
 
-	bool findPath(PathVector& path, const Position& start, const Position& end, bool detail = false);
+	bool findPath(PathVector& path, Position start, Position end, bool detail = false);
+	inline void setSkip(int s) { skip = std::max(1, s); }
 
 private:
 
@@ -230,6 +231,7 @@ private:
 
 	const GRID& grid;
 	Node *endNode;
+	int skip;
 	OpenList open;
 
 	NodeGrid nodegrid;
@@ -319,13 +321,14 @@ template <typename GRID> inline Position Searcher<GRID>::jumpX(Position p, int d
 
 	const unsigned y = p.y;
 	const Position& endpos = endNode->pos;
+	const int skip = this->skip;
 
-	unsigned a = ~((!!grid(p.x, y+1)) | ((!!grid(p.x, y-1)) << 1));
+	unsigned a = ~((!!grid(p.x, y+skip)) | ((!!grid(p.x, y-skip)) << 1));
 
 	while(true)
 	{
 		const unsigned xx = p.x + dx;
-		const unsigned b = (!!grid(xx, y+1)) | ((!!grid(xx, y-1)) << 1);
+		const unsigned b = (!!grid(xx, y+skip)) | ((!!grid(xx, y-skip)) << 1);
 
 		if((b & a) || p == endpos)
 			return p;
@@ -344,13 +347,14 @@ template <typename GRID> inline Position Searcher<GRID>::jumpY(Position p, int d
 
 	const unsigned x = p.x;
 	const Position& endpos = endNode->pos;
+	const int skip = this->skip;
 
-	unsigned a = ~((!!grid(x+1, p.y)) | ((!!grid(x-1, p.y)) << 1));
+	unsigned a = ~((!!grid(x+skip, p.y)) | ((!!grid(x-skip, p.y)) << 1));
 
 	while(true)
 	{
 		const unsigned yy = p.y + dy;
-		const unsigned b = (!!grid(x+1, yy)) | ((!!grid(x-1, yy)) << 1);
+		const unsigned b = (!!grid(x+skip, yy)) | ((!!grid(x-skip, yy)) << 1);
 
 		if((a & b) || p == endpos)
 			return p;
@@ -384,12 +388,12 @@ template <typename GRID> Position Searcher<GRID>::jumpPRec(const Position& p, co
 	}
 	else if(dx)
 	{
-		if( (grid(x+dx, y+1) && !grid(x, y+1)) || (grid(x+dx, y-1) && !grid(x, y-1)) )
+		if( (grid(x+dx, y+skip) && !grid(x, y+skip)) || (grid(x+dx, y-skip) && !grid(x, y-skip)) )
 			return p;
 	}
 	else if(dy)
 	{
-		if( (grid(x+1, y+dy) && !grid(x+1, y)) || (grid(x-1, y+dy) && !grid(x-1, y)) )
+		if( (grid(x+skip, y+dy) && !grid(x+skip, y)) || (grid(x-skip, y+dy) && !grid(x-skip, y)) )
 			return p;
 	}
 
@@ -422,16 +426,16 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 	if(!n->parent)
 	{
 		// straight moves
-		JPS_ADDPOS_CHECK(-1, 0);
-		JPS_ADDPOS_CHECK(0, -1);
-		JPS_ADDPOS_CHECK(0, 1);
-		JPS_ADDPOS_CHECK(1, 0);
+		JPS_ADDPOS_CHECK(-skip, 0);
+		JPS_ADDPOS_CHECK(0, -skip);
+		JPS_ADDPOS_CHECK(0, skip);
+		JPS_ADDPOS_CHECK(skip, 0);
 
 		// diagonal moves + prevent tunneling
-		JPS_ADDPOS_NO_TUNNEL(-1, -1);
-		JPS_ADDPOS_NO_TUNNEL(-1, 1);
-		JPS_ADDPOS_NO_TUNNEL(1, -1);
-		JPS_ADDPOS_NO_TUNNEL(1, 1);
+		JPS_ADDPOS_NO_TUNNEL(-skip, -skip);
+		JPS_ADDPOS_NO_TUNNEL(-skip, skip);
+		JPS_ADDPOS_NO_TUNNEL(skip, -skip);
+		JPS_ADDPOS_NO_TUNNEL(skip, skip);
 
 		return unsigned(w - wptr);
 	}
@@ -439,8 +443,10 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 	// jump directions (both -1, 0, or 1)
 	int dx = int(x - n->parent->pos.x);
 	dx /= std::max(abs(dx), 1);
+	dx *= skip;
 	int dy = int(y - n->parent->pos.y);
 	dy /= std::max(abs(dy), 1);
+	dy *= skip;
 
 	if(dx && dy)
 	{
@@ -471,10 +477,10 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 			JPS_ADDPOS(dx, 0);
 
 			 // Forced neighbors (+ prevent tunneling)
-			if(!JPS_CHECKGRID(0, 1))
-				JPS_ADDPOS_CHECK(dx, 1);
-			if(!JPS_CHECKGRID(0,-1))
-				JPS_ADDPOS_CHECK(dx,-1);
+			if(!JPS_CHECKGRID(0, skip))
+				JPS_ADDPOS_CHECK(dx, skip);
+			if(!JPS_CHECKGRID(0,-skip))
+				JPS_ADDPOS_CHECK(dx,-skip);
 		}
 
 
@@ -487,10 +493,10 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 			JPS_ADDPOS(0, dy);
 
 			// Forced neighbors (+ prevent tunneling)
-			if(!JPS_CHECKGRID(1, 0))
-				JPS_ADDPOS_CHECK(1, dy);
-			if(!JPS_CHECKGRID(-1, 0))
-				JPS_ADDPOS_CHECK(-1,dy);
+			if(!JPS_CHECKGRID(skip, 0))
+				JPS_ADDPOS_CHECK(skip, dy);
+			if(!JPS_CHECKGRID(-skip, 0))
+				JPS_ADDPOS_CHECK(-skip,dy);
 		}
 	}
 #undef JPS_ADDPOS
@@ -580,10 +586,16 @@ template <typename GRID> void Searcher<GRID>::generatePath(PathVector& path, boo
 	std::reverse(path.begin() + offset, path.end());
 }
 
-template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, const Position& start, const Position& end, bool detail /* = false */)
+template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Position start, Position end, bool detail /* = false */)
 {
 	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
 		it->second.clearState();
+
+	// If skip is > 1, make sure the points are aligned so that the search will always hit them
+	start.x = (start.x / skip) * skip;
+	start.y = (start.y / skip) * skip;
+	end.x = (end.x / skip) * skip;
+	end.y = (end.y / skip) * skip;
 
 	if(start == end)
 	{
@@ -636,9 +648,15 @@ using Internal::Searcher;
 // detail: If true, create exhaustive step-by-step path.
 //         If false, only return waypoints. Waypoints are guaranteed to be on a straight line (vertically, horizontally, or diagonally),
 //         and there is no obstruction between waypoints.
-template <typename GRID> bool findPath(PathVector& path, const GRID& grid, unsigned startx, unsigned starty, unsigned endx, unsigned endy, bool detail = false)
+// skip: If you know your map data well enough, this can be set to > 1 to speed up pathfinding even more.
+//       Warning: Start and end positions will be rounded down to the nearest <skip>-aligned position,
+//       so make sure to give appropriate positions so they do not end up in a wall.
+//       This will also skip through walls if they are less than <skip> blocks thick at any reachable position.
+template <typename GRID> bool findPath(PathVector& path, const GRID& grid, unsigned startx, unsigned starty, unsigned endx, unsigned endy, bool detail = false, int skip = 1)
 {
+	JPS_ASSERT(skip >= 1);
 	Searcher<GRID> search(grid);
+	search.setSkip(skip);
 	return search.findPath(path, Pos(startx, starty), Pos(endx, endy), detail);
 }
 

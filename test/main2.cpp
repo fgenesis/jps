@@ -71,7 +71,7 @@ static double pathcost(unsigned startx, unsigned starty, const JPS::PathVector& 
 		int dx = int(x - lastx);
 		int dy = int(y - lasty);
 
-		accu += sqrt(float(dx*dx + dy*dy));
+		accu += sqrt(double(dx*dx + dy*dy));
 		
 		lastx = x;
 		lasty = y;
@@ -90,7 +90,7 @@ double runScenario(const char *file)
 	{
 		Experiment ex = loader.GetNthExperiment(i);
 		JPS::PathVector path;
-		bool found = JPS::findPath(path, grid, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY(), true);
+		bool found = JPS::findPath(path, grid, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY(), false);
 		if(!found)
 			die("Path not found");
 
