@@ -119,7 +119,7 @@ enum Result
 {
 	NO_PATH = 0,
 	FOUND_PATH = 1,
-	NEED_MORE_STEPS = 2,
+	NEED_MORE_STEPS = 2
 };
 
 struct Position
@@ -652,7 +652,7 @@ template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, uns
 	return true;
 }
 
-template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Position start, Position end, unsigned step = 0)
+template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Position start, Position end, unsigned step /* = 0 */)
 {
 	Result res = findPathInit(start, end);
 

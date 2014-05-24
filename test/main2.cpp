@@ -86,19 +86,51 @@ double runScenario(const char *file)
 		die(file);
 	MapGrid grid(loader.GetNthExperiment(0).GetMapName());
 	double sum = 0;
+	JPS::PathVector path;
 	for(int i = 0; i < loader.GetNumExperiments(); ++i)
 	{
-		Experiment ex = loader.GetNthExperiment(i);
-		JPS::PathVector path;
-		bool found = JPS::findPath(path, grid, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY(), false);
+		const Experiment& ex = loader.GetNthExperiment(i);
+		path.clear();
+		size_t stepsDone, nodesExpanded;
+		int runs = 0;
+
+		// single-call
+		//bool found = JPS::findPath(path, grid, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY(), 0, 0, &stepsDone, &nodesExpanded);
+
+		// Testing incremental runs
+		bool found = false;
+		JPS::Searcher<MapGrid> search(grid);
+		JPS::Result res = search.findPathInit(JPS::Pos(ex.GetStartX(), ex.GetStartY()), JPS::Pos(ex.GetGoalX(), ex.GetGoalY()));
+		if(res == JPS::FOUND_PATH)
+			found = true;
+		else
+		{
+			while(res == JPS::NEED_MORE_STEPS)
+			{
+				++runs;
+				res = search.findPathStep(10000);
+			}
+			found = (res == JPS::FOUND_PATH) && search.findPathFinish(path);
+		}
+		stepsDone = search.getStepsDone();
+		nodesExpanded = search.getNodesExpanded();
+
+
 		if(!found)
-			die("Path not found");
+		{
+			printf("#### [%s:%d] PATH NOT FOUND: (%d, %d) -> (%d, %d)\n",
+				file, i, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY());
+			die("Path not found!"); // all paths known to be valid, so this is bad
+			continue;
+		}
 
 		// Starting position is NOT included in vector
 		double cost = pathcost(ex.GetStartX(), ex.GetStartY(), path);
 
-		if(cost > ex.GetDistance()+0.5f)
-			printf("[%s:%d] Path len: %.3f; Expected: %.3f; Diff: %.3f\n", file, i, cost, ex.GetDistance(), fabs(cost - ex.GetDistance()));
+		//if(cost > ex.GetDistance()+0.5f)
+			printf("[%s] [%s:%d] Path len: %.3f (%.3f); Diff: %.3f; Steps: %u; Nodes: %u; Runs: %u\n",
+				(cost > ex.GetDistance()+0.5f ? "##" : "  "), file, i, cost, ex.GetDistance(),
+				fabs(cost - ex.GetDistance()), (unsigned)stepsDone, (unsigned)nodesExpanded, runs);
 
 		sum += cost;
 	}

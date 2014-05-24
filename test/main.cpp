@@ -90,9 +90,10 @@ int main(int argc, char **argv)
 	std::cout << "Calculating path with step " << step << std::endl;
 
 	JPS::PathVector path;
+	size_t stepsDone, nodesExpanded;
 	for(size_t i = 1; i < waypoints.size(); ++i)
 	{
-		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, step);
+		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, step, 0, &stepsDone, &nodesExpanded);
 		if(found)
 		{
 			assert(path[0] != waypoints[i-1]);
@@ -113,6 +114,10 @@ int main(int argc, char **argv)
 
 	for(unsigned i = 0; i < grid.h; ++i)
 		std::cout << grid.out[i] << std::endl;
+
+	std::cout << std::endl;
+	std::cout << "Search steps:   " << stepsDone << std::endl;
+	std::cout << "Nodes expanded: " << nodesExpanded << std::endl;
 
 	return 0;
 }

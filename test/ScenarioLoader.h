@@ -56,8 +56,8 @@ class ScenarioLoader{
 public:
 	ScenarioLoader(const char *);
 	void Save(const char *);
-	int GetNumExperiments(){return experiments.size();}
-	Experiment GetNthExperiment(int which)
+	int GetNumExperiments() const {return experiments.size();}
+	const Experiment& GetNthExperiment(int which) const
 	{return experiments[which];}
 	void AddExperiment(Experiment which);
 private:
