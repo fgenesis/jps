@@ -100,6 +100,7 @@ Returns false if the pathfinding did not finish or generating the path failed.
 */
 
 
+#include <stdlib.h>
 #include <algorithm>
 #include <vector>
 #include <map>
