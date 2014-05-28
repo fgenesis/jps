@@ -37,7 +37,7 @@ struct MyGrid
 		w = -1;
 		h = 0;
 		for(; mapdata[h]; ++h)
-			w = std::min(w, strlen(mapdata[h]));
+			w = std::min<unsigned>(w, strlen(mapdata[h]));
 
 		out = new std::string[h];
 		for(unsigned i = 0; i < h; ++i)
