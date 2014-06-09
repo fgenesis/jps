@@ -16,7 +16,14 @@
 // ====== COMPILE CONFIG ======
 
 // If this is defined, compare all jumps against recursive reference implementation (only if _DEBUG is defined)
-//#define JPS_VERIFY
+#define JPS_VERIFY
+
+// If this is defined, search nodes will cache jump points for each possible direction.
+// Test your use cases whether jump point caching gives a speedup for you or not.
+// If you only use the single-call interface, caching will not be of any use so leave this commented out.
+// Search nodes will use 4 + 8*5*sizeof(void*) bytes more memory with caching enabled.
+// IMPORTANT: If caching is on and the grid changes, you need to call Searcher::flushCache() before starting another search!!
+#define JPS_CACHE
 
 // ============================
 
@@ -72,7 +79,7 @@ while(true)
 	// At convenient times, you can clean up accumulated nodes to reclaim memory.
 	// This is never necessary, but performance will drop if too many cached nodes exist.
 	if(mapWasReloaded)
-		search.freeMemory();
+		search.flushCache();
 }
 
 // Further remarks about the super lazy single-call function can be found at the bottom of this file.
@@ -145,6 +152,15 @@ struct Position
 	inline bool isValid() const { return x != unsigned(-1); }
 };
 
+struct JumpResult
+{
+	JumpResult(const Position& p, bool hitEnd) : p(p), hitEnd(hitEnd) {}
+	inline bool operator==(const JumpResult& o) const { return p == o.p && hitEnd == o.hitEnd; }
+	inline bool operator!=(const JumpResult& o) const { return !(*this == o); }
+	Position p;
+	bool hitEnd;
+};
+
 typedef std::vector<Position> PathVector;
 
 // ctor function to keep Position a real POD struct.
@@ -159,25 +175,106 @@ inline static Position Pos(unsigned x, unsigned y)
 namespace Internal {
 
 static const Position npos = Pos(-1, -1);
+static const JumpResult njmp(npos, false);
+
+enum
+{
+	MAX_DIRECTIONS = 8,
+	MAX_NEIGHBORS = 5 // max. possible directions if the search is moving
+};
 
 class Node
 {
 public:
-	Node(const Position& p) : f(0), g(0), pos(p), parent(0), flags(0) {}
+	Node(const Position& p) : f(0), g(0), pos(p), parent(0)
+	{
+		for(unsigned i = 0; i < (sizeof(flags) / sizeof(flags[0])); ++i)
+			flags[i] = 0;
+		// jumpPoints array can stay uninitialized
+	}
+
 	unsigned f, g;
 	const Position pos;
 	const Node *parent;
 
-	inline void setOpen() { flags |= 1; }
-	inline void setClosed() { flags |= 2; }
-	inline unsigned char isOpen() const { return flags & 1; }
-	inline unsigned char isClosed() const { return flags & 2; }
-	inline void clearState() { f = 0; g = 0, parent = 0; flags = 0; }
+	inline void     setOpen()        {        flags[0] |= (1 << 31); }
+	inline unsigned isOpen() const   { return flags[0] &  (1 << 31); }
+	inline void     setClosed()      {        flags[0] |= (1 << 30); }
+	inline unsigned isClosed() const { return flags[0] &  (1 << 30); }
+
+	inline void clearState()
+	{
+		f = 0;
+		g = 0;
+		parent = NULL;
+		// clear open and closed bits(known jump points stay intact)
+		flags[0] &= ~(3 << 30);
+	}
+
 
 private:
-	unsigned char flags;
-
 	bool operator==(const Node& o); // not implemented, nodes should not be compared
+
+	// 0 = unused, O = open?, C = closed?
+	// a-h: cache bits for all directions
+	// [bits  0-31]: OC00 dddc ccbb baaa
+	// [bits 32-63]: 0000 hhhg ggff feee
+#ifndef JPS_CACHE
+	unsigned flags[1];
+#else
+	unsigned flags[2];
+public:
+
+	inline void setNumJumpPoints(int dx, int dy, unsigned n)
+	{
+		JPS_ASSERT(n <= MAX_NEIGHBORS);
+		const unsigned both = dx & dy & 1;
+		const unsigned tristart = bitpos(dx, dy, both);
+		const unsigned mask = 7 << tristart;
+		unsigned f = flags[both];
+		f &= ~mask; // mask out old number of jump points if present
+		f |= (n+1) << tristart; // set num
+		flags[both] = f;
+	}
+
+	inline Node **getJumpPointsForDirection(int dx, int dy, int *num)
+	{
+		const unsigned both = dx & dy & 1;
+		const unsigned tri = bitidx(dx, dy, both);
+		JPS_ASSERT(tri <= 3);
+		*num = ((flags[both] >> (3*tri)) & 7) - 1; // will result in -1 if number of jump points is unknown
+		return &jumpPoints[(both << 2) | tri][0];
+	}
+
+private:
+
+	// use 2 groups of tuples (dx, dy):
+	// both set: (-1, -1), (-1, 1), (1, -1), (1, 1)
+	// one set:  (0, -1), (0, 1), (-1, 0), (1, 0)
+	// This function will assign each 4 possibilities in each group a unique index [0..3].
+	// Note: the bit magic below was determined experimentally. There might be a faster way to do this.
+	inline static unsigned bitidx(unsigned ux, unsigned uy, unsigned both)
+	{
+		const unsigned dxs = ux >> 31;
+		const unsigned a = ((uy&1) ^ (uy>>31)) << 1;
+		const unsigned b = (ux&1) + dxs;
+		const unsigned c = (~both) & dxs;
+		return (a ^ b) + c; // this is now in [0..3]
+	}
+
+	inline static unsigned bitpos(unsigned ux, unsigned uy, unsigned both)
+	{
+		return 3 * bitidx(ux, uy, both); // We have 3-bit blocks
+	}
+
+	/*inline static unsigned bitdir(unsigned ux, unsigned uy, unsigned both)
+	{
+		return (both << 2) | bitidx(ux, uy, ux & uy & 1); // [0..7]
+	}*/
+
+	Node *jumpPoints[MAX_DIRECTIONS][MAX_NEIGHBORS]; // cached jump points for each direction
+
+#endif
 };
 } // end namespace Internal
 
@@ -199,6 +296,7 @@ namespace Heuristic
 namespace Internal {
 
 typedef std::vector<Node*> NodeVector;
+typedef std::map<Position, Node> NodeGrid;
 
 class OpenList
 {
@@ -237,11 +335,32 @@ protected:
 	NodeVector nodes;
 };
 
+// Base class for thin template to avoid template bloat
+class SearcherBase
+{
+public:
+	SearcherBase() : endNode(NULL), skip(1), stepsRemain(0), stepsDone(0) {}
+
+	void flushCache();
+
+	bool generatePath(PathVector& path, unsigned step) const;
+	Node *getNode(const Position& pos);
+	void followSuccessors(Node *n, unsigned njump, Node **jumpPoints);
+
+	Node *endNode;
+	int skip;
+	int stepsRemain;
+	size_t stepsDone;
+	OpenList open;
+
+	NodeGrid nodegrid;
+};
+
 template <typename GRID> class Searcher
 {
 public:
 	Searcher(const GRID& g)
-		: grid(g), endNode(NULL), skip(1), stepsRemain(0), stepsDone(0)
+		: grid(g)
 	{}
 
 	// single-call
@@ -253,357 +372,46 @@ public:
 	bool findPathFinish(PathVector& path, unsigned step = 0);
 
 	// misc
-	void freeMemory();
-	inline void setSkip(int s) { skip = std::max(1, s); }
-	inline size_t getStepsDone() const { return stepsDone; }
-	inline size_t getNodesExpanded() const { return nodegrid.size(); }
+	inline void flushCache() { base.flushCache(); }
+	inline void setSkip(int s) { base.skip = std::max(1, s); }
+	inline size_t getStepsDone() const { return base.stepsDone; }
+	inline size_t getNodesExpanded() const { return base.nodegrid.size(); }
 
 private:
 
-	typedef std::map<Position, Node> NodeGrid;
+	const GRID& grid; // intentionally very first member
+	SearcherBase base;
 
-	const GRID& grid;
-	Node *endNode;
-	int skip;
-	int stepsRemain;
-	size_t stepsDone;
-	OpenList open;
-
-	NodeGrid nodegrid;
-
-	Node *getNode(const Position& pos);
-	void identifySuccessors(const Node *n);
+	void identifySuccessors(Node *n);
+	bool identifyJumpPoints(Node *n, Node **jumpPoints, int *njump);
 	unsigned findNeighbors(const Node *n, Position *wptr) const;
-	Position jumpP(const Position& p, const Position& src);
-	Position jumpD(Position p, int dx, int dy);
-	Position jumpX(Position p, int dx);
-	Position jumpY(Position p, int dy);
-	bool generatePath(PathVector& path, unsigned step) const;
+	unsigned findNeighborsNoParent(const Node *n, Position *wptr) const;
+	JumpResult jumpP(const Position& p, const Position& src);
+	JumpResult jumpD(Position p, int dx, int dy);
+	JumpResult jumpX(Position p, int dx);
+	JumpResult jumpY(Position p, int dy);
+
 #ifdef JPS_VERIFY
-	Position jumpPRec(const Position& p, const Position& src) const;
+	JumpResult jumpPRec(const Position& p, const Position& src) const;
 #endif
 };
 
-template <typename GRID> inline Node *Searcher<GRID>::getNode(const Position& pos)
+// ------------- Start of thin base methods ---------------------
+
+void SearcherBase::flushCache()
 {
-	JPS_ASSERT(grid(pos.x, pos.y));
+	nodegrid.clear();
+	endNode = NULL;
+	open.clear();
+	// other containers known to be empty.
+}
+
+inline Node *SearcherBase::getNode(const Position& pos)
+{
 	return &nodegrid.insert(std::make_pair(pos, Node(pos))).first->second;
 }
 
-template <typename GRID> Position Searcher<GRID>::jumpP(const Position &p, const Position& src)
-{
-	JPS_ASSERT(grid(p.x, p.y));
-
-	int dx = int(p.x - src.x);
-	int dy = int(p.y - src.y);
-	JPS_ASSERT(dx || dy);
-
-	if(dx && dy)
-		return jumpD(p, dx, dy);
-	else if(dx)
-		return jumpX(p, dx);
-	else if(dy)
-		return jumpY(p, dy);
-
-	// not reached
-	JPS_ASSERT(false);
-	return npos;
-}
-
-template <typename GRID> Position Searcher<GRID>::jumpD(Position p, int dx, int dy)
-{
-	JPS_ASSERT(grid(p.x, p.y));
-	JPS_ASSERT(dx && dy);
-
-	const Position& endpos = endNode->pos;
-	int steps = 0;
-
-	while(true)
-	{
-		if(p == endpos)
-			break;
-
-		++steps;
-		const unsigned x = p.x;
-		const unsigned y = p.y;
-
-		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
-			break;
-
-		const bool gdx = grid(x+dx, y);
-		const bool gdy = grid(x, y+dy);
-
-		if(gdx && jumpX(Pos(x+dx, y), dx).isValid())
-			break;
-
-		if(gdy && jumpY(Pos(x, y+dy), dy).isValid())
-			break;
-
-		if((gdx || gdy) && grid(x+dx, y+dy))
-		{
-			p.x += dx;
-			p.y += dy;
-		}
-		else
-		{
-			p = npos;
-			break;
-		}
-	}
-	stepsDone += (unsigned)steps;
-	stepsRemain -= steps;
-	return p;
-}
-
-template <typename GRID> inline Position Searcher<GRID>::jumpX(Position p, int dx)
-{
-	JPS_ASSERT(dx);
-	JPS_ASSERT(grid(p.x, p.y));
-
-	const unsigned y = p.y;
-	const Position& endpos = endNode->pos;
-	const int skip = this->skip;
-	int steps = 0;
-
-	unsigned a = ~((!!grid(p.x, y+skip)) | ((!!grid(p.x, y-skip)) << 1));
-
-	while(true)
-	{
-		const unsigned xx = p.x + dx;
-		const unsigned b = (!!grid(xx, y+skip)) | ((!!grid(xx, y-skip)) << 1);
-
-		if((b & a) || p == endpos)
-			break;
-		if(!grid(xx, y))
-		{
-			p = npos;
-			break;
-		}
-
-		p.x += dx;
-		a = ~b;
-		++steps;
-	}
-
-	stepsDone += (unsigned)steps;
-	stepsRemain -= steps;
-	return p;
-}
-
-template <typename GRID> inline Position Searcher<GRID>::jumpY(Position p, int dy)
-{
-	JPS_ASSERT(dy);
-	JPS_ASSERT(grid(p.x, p.y));
-
-	const unsigned x = p.x;
-	const Position& endpos = endNode->pos;
-	const int skip = this->skip;
-	int steps = 0;
-
-	unsigned a = ~((!!grid(x+skip, p.y)) | ((!!grid(x-skip, p.y)) << 1));
-
-	while(true)
-	{
-		const unsigned yy = p.y + dy;
-		const unsigned b = (!!grid(x+skip, yy)) | ((!!grid(x-skip, yy)) << 1);
-
-		if((a & b) || p == endpos)
-			break;
-		if(!grid(x, yy))
-		{
-			p = npos;
-			break;
-		}
-
-		p.y += dy;
-		a = ~b;
-	}
-
-	stepsDone += (unsigned)steps;
-	stepsRemain -= steps;
-	return p;
-}
-
-#ifdef JPS_VERIFY
-// Recursive reference implementation -- for comparison only
-template <typename GRID> Position Searcher<GRID>::jumpPRec(const Position& p, const Position& src) const
-{
-	unsigned x = p.x;
-	unsigned y = p.y;
-	if(!grid(x, y))
-		return npos;
-	if(p == endNode->pos)
-		return p;
-
-	int dx = int(x - src.x);
-	int dy = int(y - src.y);
-	JPS_ASSERT(dx || dy);
-
-	if(dx && dy)
-	{
-		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
-			return p;
-	}
-	else if(dx)
-	{
-		if( (grid(x+dx, y+skip) && !grid(x, y+skip)) || (grid(x+dx, y-skip) && !grid(x, y-skip)) )
-			return p;
-	}
-	else if(dy)
-	{
-		if( (grid(x+skip, y+dy) && !grid(x+skip, y)) || (grid(x-skip, y+dy) && !grid(x-skip, y)) )
-			return p;
-	}
-
-	if(dx && dy)
-	{
-		if(jumpPRec(Pos(x+dx, y), p).isValid())
-			return p;
-		if(jumpPRec(Pos(x, y+dy), p).isValid())
-			return p;
-	}
-
-	if(grid(x+dx, y) || grid(x, y+dy))
-		return jumpPRec(Pos(x+dx, y+dy), p);
-
-	return npos;
-}
-#endif
-
-template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, Position *wptr) const
-{
-	Position *w = wptr;
-	const unsigned x = n->pos.x;
-	const unsigned y = n->pos.y;
-
-#define JPS_CHECKGRID(dx, dy) (grid(x+(dx), y+(dy)))
-#define JPS_ADDPOS(dx, dy) 	do { *w++ = Pos(x+(dx), y+(dy)); } while(0)
-#define JPS_ADDPOS_CHECK(dx, dy) do { if(JPS_CHECKGRID(dx, dy)) JPS_ADDPOS(dx, dy); } while(0)
-#define JPS_ADDPOS_NO_TUNNEL(dx, dy) do { if(grid(x+(dx),y) || grid(x,y+(dy))) JPS_ADDPOS_CHECK(dx, dy); } while(0)
-
-	if(!n->parent)
-	{
-		// straight moves
-		JPS_ADDPOS_CHECK(-skip, 0);
-		JPS_ADDPOS_CHECK(0, -skip);
-		JPS_ADDPOS_CHECK(0, skip);
-		JPS_ADDPOS_CHECK(skip, 0);
-
-		// diagonal moves + prevent tunneling
-		JPS_ADDPOS_NO_TUNNEL(-skip, -skip);
-		JPS_ADDPOS_NO_TUNNEL(-skip, skip);
-		JPS_ADDPOS_NO_TUNNEL(skip, -skip);
-		JPS_ADDPOS_NO_TUNNEL(skip, skip);
-
-		return unsigned(w - wptr);
-	}
-
-	// jump directions (both -1, 0, or 1)
-	int dx = int(x - n->parent->pos.x);
-	dx /= std::max(abs(dx), 1);
-	dx *= skip;
-	int dy = int(y - n->parent->pos.y);
-	dy /= std::max(abs(dy), 1);
-	dy *= skip;
-
-	if(dx && dy)
-	{
-		// diagonal
-		// natural neighbors
-		bool walkX = false;
-		bool walkY = false;
-		if((walkX = grid(x+dx, y)))
-			*w++ = Pos(x+dx, y);
-		if((walkY = grid(x, y+dy)))
-			*w++ = Pos(x, y+dy);
-
-		if(walkX || walkY)
-			JPS_ADDPOS_CHECK(dx, dy);
-
-		// forced neighbors
-		if(walkY && !JPS_CHECKGRID(-dx,0))
-			JPS_ADDPOS_CHECK(-dx, dy);
-
-		if(walkX && !JPS_CHECKGRID(0,-dy))
-			JPS_ADDPOS_CHECK(dx, -dy);
-	}
-	else if(dx)
-	{
-		// along X axis
-		if(JPS_CHECKGRID(dx, 0))
-		{
-			JPS_ADDPOS(dx, 0);
-
-			 // Forced neighbors (+ prevent tunneling)
-			if(!JPS_CHECKGRID(0, skip))
-				JPS_ADDPOS_CHECK(dx, skip);
-			if(!JPS_CHECKGRID(0,-skip))
-				JPS_ADDPOS_CHECK(dx,-skip);
-		}
-
-
-	}
-	else if(dy)
-	{
-		// along Y axis
-		if(JPS_CHECKGRID(0, dy))
-		{
-			JPS_ADDPOS(0, dy);
-
-			// Forced neighbors (+ prevent tunneling)
-			if(!JPS_CHECKGRID(skip, 0))
-				JPS_ADDPOS_CHECK(skip, dy);
-			if(!JPS_CHECKGRID(-skip, 0))
-				JPS_ADDPOS_CHECK(-skip,dy);
-		}
-	}
-#undef JPS_ADDPOS
-#undef JPS_ADDPOS_CHECK
-#undef JPS_ADDPOS_NO_TUNNEL
-#undef JPS_CHECKGRID
-
-	return unsigned(w - wptr);
-}
-
-template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
-{
-	Position buf[8];
-	const int num = findNeighbors(n, &buf[0]);
-	for(int i = num-1; i >= 0; --i)
-	{
-		// Invariant: A node is only a valid neighbor if the corresponding grid position is walkable (asserted in jumpP)
-		Position jp = jumpP(buf[i], n->pos);
-#ifdef JPS_VERIFY
-		JPS_ASSERT(jp == jumpPRec(buf[i], n->pos));
-#endif
-		if(!jp.isValid())
-			continue;
-
-		// Now that the grid position is definitely a valid jump point, we have to create the actual node.
-		Node *jn = getNode(jp);
-		JPS_ASSERT(jn && jn != n);
-		if(!jn->isClosed())
-		{
-			unsigned extraG = Heuristic::Euclidean(jn, n);
-			unsigned newG = n->g + extraG;
-			if(!jn->isOpen() || newG < jn->g)
-			{
-				jn->g = newG;
-				jn->f = jn->g + Heuristic::Manhattan(jn, endNode);
-				jn->parent = n;
-				if(!jn->isOpen())
-				{
-					open.push(jn);
-					jn->setOpen();
-				}
-				else
-					open.fixup(jn);
-			}
-		}
-	}
-}
-
-template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, unsigned step) const
+bool SearcherBase::generatePath(PathVector& path, unsigned step) const
 {
 	if(!endNode)
 		return false;
@@ -653,6 +461,481 @@ template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, uns
 	return true;
 }
 
+void SearcherBase::followSuccessors(Node *n, unsigned njump, Node **jumpPoints)
+{
+	for(unsigned i = 0; i < njump; ++i)
+	{
+		Node *jn = jumpPoints[i];
+		if(!jn->isClosed())
+		{
+			const unsigned extraG = Heuristic::Euclidean(jn, n);
+			const unsigned newG = n->g + extraG;
+			if(!jn->isOpen() || newG < jn->g)
+			{
+				jn->g = newG;
+				jn->f = newG + Heuristic::Manhattan(jn, endNode);
+				jn->parent = n;
+				if(!jn->isOpen())
+				{
+					open.push(jn);
+					jn->setOpen();
+				}
+				else
+					open.fixup(jn);
+			}
+		}
+	}
+}
+
+// ---------------- Start of template code ----------------
+
+template <typename GRID> JumpResult Searcher<GRID>::jumpP(const Position &p, const Position& src)
+{
+	JPS_ASSERT(grid(p.x, p.y));
+
+	int dx = int(p.x - src.x);
+	int dy = int(p.y - src.y);
+	JPS_ASSERT(dx || dy);
+	printf("jumpP(%u, %u), dx = %d, dy = %d\n", p.x, p.y, dx, dy);
+
+	if(dx && dy)
+		return jumpD(p, dx, dy);
+	else if(dx)
+		return jumpX(p, dx);
+	else if(dy)
+		return jumpY(p, dy);
+
+	// not reached
+	JPS_ASSERT(false);
+	return njmp;
+}
+
+template <typename GRID> JumpResult Searcher<GRID>::jumpD(Position p, int dx, int dy)
+{
+	printf("jumpD(%u, %u), dx = %d, dy = %d\n", p.x, p.y, dx, dy);
+	JPS_ASSERT(grid(p.x, p.y));
+	JPS_ASSERT(dx && dy);
+
+	const Position endpos = base.endNode->pos;
+	int steps = 0;
+	bool hitEnd = false;
+
+	while(true)
+	{
+		if(p == endpos)
+		{
+			hitEnd = true;
+			break;
+		}
+
+		++steps;
+		const unsigned x = p.x;
+		const unsigned y = p.y;
+
+		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
+			break;
+
+		const bool gdx = grid(x+dx, y);
+		const bool gdy = grid(x, y+dy);
+
+		if(gdx)
+		{
+			JumpResult jr = jumpX(Pos(x+dx, y), dx);
+			if(jr.p.isValid())
+			{
+				hitEnd = jr.hitEnd;
+				break;
+			}
+		}
+
+		if(gdy)
+		{
+			JumpResult jr = jumpY(Pos(x, y+dy), dy);
+			if(jr.p.isValid())
+			{
+				hitEnd = jr.hitEnd;
+				break;
+			}
+		}
+
+		if((gdx || gdy) && grid(x+dx, y+dy))
+		{
+			p.x += dx;
+			p.y += dy;
+		}
+		else
+		{
+			p = npos;
+			break;
+		}
+	}
+	base.stepsDone += (unsigned)steps;
+	base.stepsRemain -= steps;
+	printf(" <- (%u, %u)\n", p.x, p.y);
+	return JumpResult(p, hitEnd);
+}
+
+template <typename GRID> inline JumpResult Searcher<GRID>::jumpX(Position p, int dx)
+{
+	printf("jumpX(%u, %u), dx = %d\n", p.x, p.y, dx);
+	bool v = p.x == 344 && p.y == 376 && dx == 1;
+	JPS_ASSERT(dx);
+	JPS_ASSERT(grid(p.x, p.y));
+
+	const unsigned y = p.y;
+	const Position endpos = base.endNode->pos;
+	const unsigned skip = base.skip;
+	int steps = 0;
+	bool hitEnd = false;
+
+	unsigned a = ~((!!grid(p.x, y+skip)) | ((!!grid(p.x, y-skip)) << 1));
+
+	while(true)
+	{
+		if(p == endpos)
+		{
+			hitEnd = true;
+			break;
+		}
+		const unsigned xx = p.x + dx;
+		const unsigned b = (!!grid(xx, y+skip)) | ((!!grid(xx, y-skip)) << 1);
+		if(v)
+			printf("# xx = %u, a = %u, b = %u, endpos = (%u, %u), steps = %u\n", xx, a, b, endpos.x, endpos.y, steps);
+
+		if(b & a)
+			break;
+		if(!grid(xx, y))
+		{
+			p = npos;
+			break;
+		}
+
+		p.x = xx;
+		a = ~b;
+		++steps;
+	}
+
+	base.stepsDone += (unsigned)steps;
+	base.stepsRemain -= steps;
+	printf(" <- (%u, %u)\n", p.x, p.y);
+	return JumpResult(p, hitEnd);
+}
+
+template <typename GRID> inline JumpResult Searcher<GRID>::jumpY(Position p, int dy)
+{
+	printf("jumpY(%u, %u), dy = %d\n", p.x, p.y, dy);
+	JPS_ASSERT(dy);
+	JPS_ASSERT(grid(p.x, p.y));
+
+	const unsigned x = p.x;
+	const Position endpos = base.endNode->pos;
+	const unsigned skip = base.skip;
+	int steps = 0;
+	bool hitEnd = false;
+
+	unsigned a = ~((!!grid(x+skip, p.y)) | ((!!grid(x-skip, p.y)) << 1));
+
+	while(true)
+	{
+		if(p == endpos)
+		{
+			hitEnd = true;
+			break;
+		}
+
+		const unsigned yy = p.y + dy;
+		const unsigned b = (!!grid(x+skip, yy)) | ((!!grid(x-skip, yy)) << 1);
+
+		if(a & b)
+			break;
+		if(!grid(x, yy))
+		{
+			p = npos;
+			break;
+		}
+
+		p.y = yy;
+		a = ~b;
+	}
+
+	base.stepsDone += (unsigned)steps;
+	base.stepsRemain -= steps;
+	printf(" <- (%u, %u)\n", p.x, p.y);
+	return JumpResult(p, hitEnd);
+}
+
+#ifdef JPS_VERIFY
+// Recursive reference implementation -- for comparison only
+template <typename GRID> JumpResult Searcher<GRID>::jumpPRec(const Position& p, const Position& src) const
+{
+	const unsigned x = p.x;
+	const unsigned y = p.y;
+	const int skip = base.skip;
+	if(!grid(x, y))
+		return JumpResult(npos, false);
+	if(p == base.endNode->pos)
+		return JumpResult(p, true);
+
+	int dx = int(x - src.x);
+	int dy = int(y - src.y);
+	JPS_ASSERT(dx || dy);
+
+	if(dx && dy)
+	{
+		if( (grid(x-dx, y+dy) && !grid(x-dx, y)) || (grid(x+dx, y-dy) && !grid(x, y-dy)) )
+			return JumpResult(p, false);
+	}
+	else if(dx)
+	{
+		if( (grid(x+dx, y+skip) && !grid(x, y+skip)) || (grid(x+dx, y-skip) && !grid(x, y-skip)) )
+			return JumpResult(p, false);
+	}
+	else if(dy)
+	{
+		if( (grid(x+skip, y+dy) && !grid(x+skip, y)) || (grid(x-skip, y+dy) && !grid(x-skip, y)) )
+			return JumpResult(p, false);
+	}
+
+	if(dx && dy)
+	{
+		JumpResult jr = jumpPRec(Pos(x+dx, y), p);
+		if(jr.p.isValid())
+			return JumpResult(p, jr.hitEnd);
+		jr = jumpPRec(Pos(x, y+dy), p);
+		if(jr.p.isValid())
+			return JumpResult(p, jr.hitEnd);
+	}
+
+	if(grid(x+dx, y) || grid(x, y+dy))
+		return jumpPRec(Pos(x+dx, y+dy), p);
+
+	return njmp;
+}
+#endif
+
+
+#define JPS_CHECKGRID(dx, dy) (grid(x+(dx), y+(dy)))
+#define JPS_ADDPOS(dx, dy) 	do { *w++ = Pos(x+(dx), y+(dy)); } while(0)
+#define JPS_ADDPOS_CHECK(dx, dy) do { if(JPS_CHECKGRID(dx, dy)) JPS_ADDPOS(dx, dy); } while(0)
+#define JPS_ADDPOS_NO_TUNNEL(dx, dy) do { if(grid(x+(dx),y) || grid(x,y+(dy))) JPS_ADDPOS_CHECK(dx, dy); } while(0)
+
+template <typename GRID> unsigned Searcher<GRID>::findNeighborsNoParent(const Node *n, Position *wptr) const
+{
+	JPS_ASSERT(!n->parent);
+
+	Position *w = wptr;
+	const int skip = base.skip;
+	const unsigned x = n->pos.x;
+	const unsigned y = n->pos.y;
+
+	// straight moves
+	JPS_ADDPOS_CHECK(-skip, 0);
+	JPS_ADDPOS_CHECK(0, -skip);
+	JPS_ADDPOS_CHECK(0, skip);
+	JPS_ADDPOS_CHECK(skip, 0);
+
+	// diagonal moves + prevent tunneling
+	JPS_ADDPOS_NO_TUNNEL(-skip, -skip);
+	JPS_ADDPOS_NO_TUNNEL(-skip, skip);
+	JPS_ADDPOS_NO_TUNNEL(skip, -skip);
+	JPS_ADDPOS_NO_TUNNEL(skip, skip);
+
+	return unsigned(w - wptr);
+}
+
+template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, Position *wptr) const
+{
+	JPS_ASSERT(n->parent);
+
+	Position *w = wptr;
+	const int skip = base.skip;
+	const unsigned x = n->pos.x;
+	const unsigned y = n->pos.y;
+
+	// jump directions (both -1, 0, or 1)
+	int dx = int(x - n->parent->pos.x);
+	int dy = int(y - n->parent->pos.y);
+
+	if(dx && dy)
+	{
+		dx = (dx / abs(dx)) * skip;
+		dy = (dy / abs(dy)) * skip;
+
+		// diagonal
+		// natural neighbors
+		bool walkX = false;
+		bool walkY = false;
+		if((walkX = grid(x+dx, y)))
+			*w++ = Pos(x+dx, y);
+		if((walkY = grid(x, y+dy)))
+			*w++ = Pos(x, y+dy);
+
+		if(walkX || walkY)
+			JPS_ADDPOS_CHECK(dx, dy);
+
+		// forced neighbors
+		if(walkY && !JPS_CHECKGRID(-dx,0))
+			JPS_ADDPOS_CHECK(-dx, dy);
+
+		if(walkX && !JPS_CHECKGRID(0,-dy))
+			JPS_ADDPOS_CHECK(dx, -dy);
+	}
+	else if(dx)
+	{
+		dx = (dx / abs(dx)) * skip;
+
+		// along X axis
+		if(JPS_CHECKGRID(dx, 0))
+		{
+			JPS_ADDPOS(dx, 0);
+
+			// Forced neighbors (+ prevent tunneling)
+			if(!JPS_CHECKGRID(0, skip))
+				JPS_ADDPOS_CHECK(dx, skip);
+			if(!JPS_CHECKGRID(0,-skip))
+				JPS_ADDPOS_CHECK(dx,-skip);
+		}
+	}
+	else if(dy)
+	{
+		dy = (dy / abs(dy)) * skip;
+
+		// along Y axis
+		if(JPS_CHECKGRID(0, dy))
+		{
+			JPS_ADDPOS(0, dy);
+
+			// Forced neighbors (+ prevent tunneling)
+			if(!JPS_CHECKGRID(skip, 0))
+				JPS_ADDPOS_CHECK(skip, dy);
+			if(!JPS_CHECKGRID(-skip, 0))
+				JPS_ADDPOS_CHECK(-skip,dy);
+		}
+	}
+
+	return unsigned(w - wptr);
+}
+
+#undef JPS_ADDPOS
+#undef JPS_ADDPOS_CHECK
+#undef JPS_ADDPOS_NO_TUNNEL
+#undef JPS_CHECKGRID
+
+template <typename GRID> bool Searcher<GRID>::identifyJumpPoints(Node *n, Node **jumpPoints, int *njumpP)
+{
+	int njump = 0;
+	Position buf[MAX_DIRECTIONS];
+	const int num = n->parent ? findNeighbors(n, &buf[0]) : findNeighborsNoParent(n, &buf[0]);
+	bool hitEnd = false;
+	for(int i = num-1; i >= 0; --i)
+	{
+		printf("Jump from (%u, %u) to (%u, %u)\n", n->pos.x, n->pos.y, buf[i].x, buf[i].y);
+
+		// Invariant: A node is only a valid neighbor if the corresponding grid position is walkable (asserted in jumpP)
+		JumpResult jr = jumpP(buf[i], n->pos);
+
+#ifdef JPS_VERIFY
+		{
+			JumpResult jrcheck = jumpPRec(buf[i], n->pos);
+			JPS_ASSERT(jr == jrcheck);
+		}
+#endif
+
+		if(!jr.p.isValid())
+			continue;
+
+		hitEnd = hitEnd || jr.hitEnd;
+
+		// Now that the grid position is definitely a valid jump point, we have to create the actual node.
+		Node *jn = base.getNode(jr.p);
+		JPS_ASSERT(jn && jn != n);
+		printf("# Hit end: %d\n", jr.hitEnd);
+
+		jumpPoints[njump++] = jn;
+	}
+	*njumpP = njump;
+	printf("#### Hit end: %d\n", hitEnd);
+	return hitEnd; // indicate not to cache jump point if traversal was aborted early because end was hit
+}
+
+template <typename GRID> void Searcher<GRID>::identifySuccessors(Node *n)
+{
+	Node *jumpPoints[MAX_DIRECTIONS];
+	Node **jumpPointsUse = &jumpPoints[0];
+	int njump;
+
+#ifndef JPS_CACHE
+	identifyJumpPoints(n, jumpPoints, &njump);
+#else
+	// Jump points for this node stay constant as long as the grid stays constant.
+	// If the jump points are not known yet, collect them.
+	// If they are known, the slow map lookup can be skipped.
+
+	// No parent -- this is the initial node, dx == dy == 0.
+	// Do not cache jump points in this case
+	if(!n->parent)
+		identifyJumpPoints(n, jumpPoints, &njump);
+	else
+	{
+		int dx = int(n->pos.x - n->parent->pos.x);
+		int dy = int(n->pos.y - n->parent->pos.y);
+		JPS_ASSERT(dx || dy);
+		JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy));
+		dx /= std::max(abs(dx), 1);
+		dy /= std::max(abs(dy), 1);
+
+		// TODO: only use cache if end node is not between n and end node
+
+		Node **jumpPointsPtr = n->getJumpPointsForDirection(dx, dy, &njump);
+
+		if(njump < 0)
+		{
+			// only cache jump points if end wasn't hit
+			if(!identifyJumpPoints(n, jumpPoints, &njump))
+			{
+				JPS_ASSERT(njump <= MAX_NEIGHBORS);
+				for(int i = 0; i < njump; ++i)
+					jumpPointsPtr[i] = jumpPoints[i];
+				n->setNumJumpPoints(dx, dy, njump);
+
+				printf("[NEW]   JP for node %p (%u, %u), direction (%d, %d), parent %p: %d\n", n, n->pos.x, n->pos.y, dx, dy, n->parent, njump);
+				for(int i = 0; i < njump; ++i)
+					printf("           (%u, %u)\n", jumpPointsPtr[i]->pos.x, jumpPointsPtr[i]->pos.y);
+			}
+		}
+		else
+		{
+			jumpPointsUse = jumpPointsPtr; // just use that pointer without copying contents
+
+		#ifdef JPS_VERIFY
+			int dummy, cc = 0;
+			for(int y = -1; y <= 1; ++y)
+				for(int x = -1; x <= 1; ++x)
+					if(x || y)
+						cc += jumpPointsPtr == n->getJumpPointsForDirection(x, y, &dummy);
+			JPS_ASSERT(cc == 1);
+
+			printf("[CHECK] JP for node %p (%u, %u), direction (%d, %d), parent %p: %d\n", n, n->pos.x, n->pos.y, dx, dy, n->parent, njump);
+			JPS_ASSERT(njump <= MAX_NEIGHBORS);
+			Node *jp[MAX_NEIGHBORS];
+			int njj;
+			bool hitEnd = identifyJumpPoints(n, &jp[0], &njj);
+			(void)njj;
+			JPS_ASSERT(!hitEnd); // should not be cached if end was hit
+			JPS_ASSERT(njump == njj);
+			for(int i = 0; i < njump; ++i)
+			{
+				printf("           (%u, %u)\n", jp[i]->pos.x, jp[i]->pos.y);
+				JPS_ASSERT(jp[i] == jumpPointsPtr[i]); // array is uninitialized for i >= njump
+			}
+		#endif
+		}
+	}
+#endif
+
+	base.followSuccessors(n, njump, jumpPointsUse);
+}
+
 template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Position start, Position end, unsigned step /* = 0 */)
 {
 	Result res = findPathInit(start, end);
@@ -681,13 +964,14 @@ template <typename GRID> bool Searcher<GRID>::findPath(PathVector& path, Positio
 
 template <typename GRID> Result Searcher<GRID>::findPathInit(Position start, Position end)
 {
-	for(NodeGrid::iterator it = nodegrid.begin(); it != nodegrid.end(); ++it)
+	for(NodeGrid::iterator it = base.nodegrid.begin(); it != base.nodegrid.end(); ++it)
 		it->second.clearState();
-	open.clear();
-	endNode = NULL;
-	stepsDone = 0;
+	base.open.clear();
+	base.endNode = NULL;
+	base.stepsDone = 0;
 
 	// If skip is > 1, make sure the points are aligned so that the search will always hit them
+	const unsigned skip = base.skip;
 	start.x = (start.x / skip) * skip;
 	start.y = (start.y / skip) * skip;
 	end.x = (end.x / skip) * skip;
@@ -704,43 +988,35 @@ template <typename GRID> Result Searcher<GRID>::findPathInit(Position start, Pos
 	if(!grid(start.x, start.y) || !grid(end.x, end.y))
 		return NO_PATH;
 
-	open.push(getNode(start));
-	endNode = getNode(end);
-	JPS_ASSERT(endNode);
+	base.open.push(base.getNode(start));
+	base.endNode = base.getNode(end);
+	JPS_ASSERT(base.endNode);
 
 	return NEED_MORE_STEPS;
 }
 
 template <typename GRID> Result Searcher<GRID>::findPathStep(int limit)
 {
-	stepsRemain = limit;
+	base.stepsRemain = limit;
 	do
 	{
-		if(open.empty())
+		if(base.open.empty())
 			return NO_PATH;
-		Node *n = open.pop();
+		Node *n = base.open.pop();
 		n->setClosed();
-		if(n == endNode)
+		if(n == base.endNode)
 			return FOUND_PATH;
 		identifySuccessors(n);
 	}
-	while(stepsRemain >= 0);
+	while(base.stepsRemain >= 0);
 	return NEED_MORE_STEPS;
 }
 
 template<typename GRID> bool Searcher<GRID>::findPathFinish(PathVector& path, unsigned step /* = 0 */)
 {
-	return generatePath(path, step);
+	return base.generatePath(path, step);
 }
 
-template<typename GRID> void Searcher<GRID>::freeMemory()
-{
-	NodeGrid v;
-	nodegrid.swap(v);
-	endNode = NULL;
-	open.clear();
-	// other containers known to be empty.
-}
 
 } // end namespace Internal
 

@@ -87,6 +87,7 @@ double runScenario(const char *file)
 	MapGrid grid(loader.GetNthExperiment(0).GetMapName());
 	double sum = 0;
 	JPS::PathVector path;
+	JPS::Searcher<MapGrid> search(grid);
 	for(int i = 0; i < loader.GetNumExperiments(); ++i)
 	{
 		const Experiment& ex = loader.GetNthExperiment(i);
@@ -99,7 +100,6 @@ double runScenario(const char *file)
 
 		// Testing incremental runs
 		bool found = false;
-		JPS::Searcher<MapGrid> search(grid);
 		JPS::Result res = search.findPathInit(JPS::Pos(ex.GetStartX(), ex.GetStartY()), JPS::Pos(ex.GetGoalX(), ex.GetGoalY()));
 		if(res == JPS::FOUND_PATH)
 			found = true;
