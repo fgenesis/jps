@@ -18,6 +18,9 @@
 // If this is defined, compare all jumps against recursive reference implementation (only if _DEBUG is defined)
 //#define JPS_VERIFY
 
+// If this is defined, use A* instead of JPS (e.g. if you want to compare performance in your scenario)
+//#define JPS_ASTAR_ONLY
+
 // ============================
 
 // Usage:
@@ -170,12 +173,12 @@ public:
 
 	inline void setOpen() { flags |= 1; }
 	inline void setClosed() { flags |= 2; }
-	inline unsigned char isOpen() const { return flags & 1; }
-	inline unsigned char isClosed() const { return flags & 2; }
+	inline unsigned isOpen() const { return flags & 1; }
+	inline unsigned isClosed() const { return flags & 2; }
 	inline void clearState() { f = 0; g = 0, parent = 0; flags = 0; }
 
 private:
-	unsigned char flags;
+	unsigned flags;
 
 	bool operator==(const Node& o); // not implemented, nodes should not be compared
 };
@@ -224,7 +227,7 @@ public:
 	{
 		nodes.clear();
 	}
-	inline void fixup(const Node *item)
+	inline void fixup()
 	{
 		std::make_heap(nodes.begin(), nodes.end(), _compare);
 	}
@@ -273,12 +276,17 @@ private:
 
 	Node *getNode(const Position& pos);
 	void identifySuccessors(const Node *n);
+	bool generatePath(PathVector& path, unsigned step) const;
+	
+#ifdef JPS_ASTAR_ONLY
+	unsigned findNeighborsAStar(const Node *n, Position *wptr);
+#else
 	unsigned findNeighbors(const Node *n, Position *wptr) const;
 	Position jumpP(const Position& p, const Position& src);
 	Position jumpD(Position p, int dx, int dy);
 	Position jumpX(Position p, int dx);
 	Position jumpY(Position p, int dy);
-	bool generatePath(PathVector& path, unsigned step) const;
+#endif
 #ifdef JPS_VERIFY
 	Position jumpPRec(const Position& p, const Position& src) const;
 #endif
@@ -290,6 +298,7 @@ template <typename GRID> inline Node *Searcher<GRID>::getNode(const Position& po
 	return &nodegrid.insert(std::make_pair(pos, Node(pos))).first->second;
 }
 
+#ifndef JPS_ASTAR_ONLY
 template <typename GRID> Position Searcher<GRID>::jumpP(const Position &p, const Position& src)
 {
 	JPS_ASSERT(grid(p.x, p.y));
@@ -423,6 +432,7 @@ template <typename GRID> inline Position Searcher<GRID>::jumpY(Position p, int d
 	stepsRemain -= steps;
 	return p;
 }
+#endif // JPS_ASTAR_ONLY
 
 #ifdef JPS_VERIFY
 // Recursive reference implementation -- for comparison only
@@ -468,18 +478,19 @@ template <typename GRID> Position Searcher<GRID>::jumpPRec(const Position& p, co
 
 	return npos;
 }
-#endif
-
-template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, Position *wptr) const
-{
-	Position *w = wptr;
-	const unsigned x = n->pos.x;
-	const unsigned y = n->pos.y;
+#endif // JPS_VERIFY
 
 #define JPS_CHECKGRID(dx, dy) (grid(x+(dx), y+(dy)))
 #define JPS_ADDPOS(dx, dy) 	do { *w++ = Pos(x+(dx), y+(dy)); } while(0)
 #define JPS_ADDPOS_CHECK(dx, dy) do { if(JPS_CHECKGRID(dx, dy)) JPS_ADDPOS(dx, dy); } while(0)
 #define JPS_ADDPOS_NO_TUNNEL(dx, dy) do { if(grid(x+(dx),y) || grid(x,y+(dy))) JPS_ADDPOS_CHECK(dx, dy); } while(0)
+
+#ifndef JPS_ASTAR_ONLY
+template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, Position *wptr) const
+{
+	Position *w = wptr;
+	const unsigned x = n->pos.x;
+	const unsigned y = n->pos.y;
 
 	if(!n->parent)
 	{
@@ -557,28 +568,58 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighbors(const Node *n, P
 				JPS_ADDPOS_CHECK(-skip,dy);
 		}
 	}
+
+	return unsigned(w - wptr);
+}
+
+#else
+//-------------- Plain old A* search ----------------
+template <typename GRID> unsigned Searcher<GRID>::findNeighborsAStar(const Node *n, Position *wptr)
+{
+	Position *w = wptr;
+	const int x = n->pos.x;
+	const int y = n->pos.y;
+	const int d = skip;
+	JPS_ADDPOS_NO_TUNNEL(-d, -d);
+	JPS_ADDPOS_CHECK    ( 0, -d);
+	JPS_ADDPOS_NO_TUNNEL(+d, -d);
+	JPS_ADDPOS_CHECK    (-d,  0);
+	JPS_ADDPOS_CHECK    (+d,  0);
+	JPS_ADDPOS_NO_TUNNEL(-d, +d);
+	JPS_ADDPOS_CHECK    ( 0, +d);
+	JPS_ADDPOS_NO_TUNNEL(+d, +d);
+	return unsigned(w - wptr);
+}
+#endif // JPS_ASTAR_ONLY
+//-------------------------------------------------
 #undef JPS_ADDPOS
 #undef JPS_ADDPOS_CHECK
 #undef JPS_ADDPOS_NO_TUNNEL
 #undef JPS_CHECKGRID
 
-	return unsigned(w - wptr);
-}
 
 template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 {
 	Position buf[8];
+#ifdef JPS_ASTAR_ONLY
+	const int num = findNeighborsAStar(n, &buf[0]);
+#else
 	const int num = findNeighbors(n, &buf[0]);
+#endif
+	bool fix = false;
 	for(int i = num-1; i >= 0; --i)
 	{
 		// Invariant: A node is only a valid neighbor if the corresponding grid position is walkable (asserted in jumpP)
+#ifdef JPS_ASTAR_ONLY
+		Position jp = buf[i];
+#else
 		Position jp = jumpP(buf[i], n->pos);
-#ifdef JPS_VERIFY
+	#ifdef JPS_VERIFY
 		JPS_ASSERT(jp == jumpPRec(buf[i], n->pos));
-#endif
+	#endif
 		if(!jp.isValid())
 			continue;
-
+#endif
 		// Now that the grid position is definitely a valid jump point, we have to create the actual node.
 		Node *jn = getNode(jp);
 		JPS_ASSERT(jn && jn != n);
@@ -597,10 +638,12 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 					jn->setOpen();
 				}
 				else
-					open.fixup(jn);
+					fix = true;
 			}
 		}
 	}
+	if(fix)
+		open.fixup();
 }
 
 template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, unsigned step) const
