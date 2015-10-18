@@ -23,7 +23,7 @@
 
 // If this is defined, disable the greedy direct-short-path check that avoids the large area scanning that JPS does.
 // Does not change optimality of results when left enabled
-//#define JPS_DISABLE_FAST_CHECK
+//#define JPS_DISABLE_GREEDY
 
 // ============================
 
