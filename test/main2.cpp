@@ -101,7 +101,7 @@ double runScenario(const char *file)
 		bool found = false;
 		JPS::Searcher<MapGrid> search(grid);
 		JPS::Result res = search.findPathInit(JPS::Pos(ex.GetStartX(), ex.GetStartY()), JPS::Pos(ex.GetGoalX(), ex.GetGoalY()));
-		if(res == JPS::FOUND_PATH)
+		if(res == JPS::EMPTY_PATH)
 			found = true;
 		else
 		{
@@ -110,7 +110,7 @@ double runScenario(const char *file)
 				++runs;
 				res = search.findPathStep(10000);
 			}
-			found = (res == JPS::FOUND_PATH) && search.findPathFinish(path);
+			found = (res == JPS::FOUND_PATH) && search.findPathFinish(path, 0);
 		}
 		stepsDone = search.getStepsDone();
 		nodesExpanded = search.getNodesExpanded();
