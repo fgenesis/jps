@@ -588,6 +588,7 @@ template <typename GRID> unsigned Searcher<GRID>::findNeighborsAStar(const Node 
 	JPS_ADDPOS_NO_TUNNEL(-d, +d);
 	JPS_ADDPOS_CHECK    ( 0, +d);
 	JPS_ADDPOS_NO_TUNNEL(+d, +d);
+	stepsDone += 8;
 	return unsigned(w - wptr);
 }
 #endif // JPS_ASTAR_ONLY
