@@ -606,7 +606,6 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 #else
 	const int num = findNeighbors(n, &buf[0]);
 #endif
-	bool fix = false;
 	for(int i = num-1; i >= 0; --i)
 	{
 		// Invariant: A node is only a valid neighbor if the corresponding grid position is walkable (asserted in jumpP)
@@ -638,12 +637,10 @@ template <typename GRID> void Searcher<GRID>::identifySuccessors(const Node *n)
 					jn->setOpen();
 				}
 				else
-					fix = true;
+					open.fixup();
 			}
 		}
 	}
-	if(fix)
-		open.fixup();
 }
 
 template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, unsigned step) const
