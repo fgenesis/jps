@@ -252,7 +252,11 @@ template <typename GRID> class Searcher
 {
 public:
 	Searcher(const GRID& g)
-		: grid(g), endNode(NULL), skip(1), stepsRemain(0), stepsDone(0)
+		: grid(g), endNode(NULL), skip(1), stepsRemain(0), stepsDone(0), useDiagonals(true)
+	{}
+
+	Searcher(const GRID& g, bool useDiagonals)
+		: grid(g), endNode(NULL), skip(1), stepsRemain(0), stepsDone(0), useDiagonals(useDiagonals)
 	{}
 
 	// single-call
@@ -278,6 +282,7 @@ private:
 	int skip;
 	int stepsRemain;
 	size_t stepsDone;
+	bool useDiagonals;
 	OpenList open;
 
 	NodeGrid nodegrid;
@@ -661,7 +666,7 @@ template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, uns
 	if(!endNode)
 		return false;
 	size_t offset = path.size();
-	if(step)
+	if(step && useDiagonals)
 	{
 		const Node *next = endNode;
 		const Node *prev = endNode->parent;
@@ -682,6 +687,52 @@ template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, uns
 			for(int i = 0; i < steps; i += step)
 			{
 				path.push_back(Pos(x+dxa, y+dya));
+				dxa += dx;
+				dya += dy;
+			}
+			next = prev;
+			prev = prev->parent;
+		}
+		while (prev);
+	}
+	else if (step && !useDiagonals)
+	{
+		const Node *next = endNode;
+		const Node *prev = endNode->parent;
+		if(!prev)
+			return false;
+		do
+		{
+			const unsigned x = next->pos.x, y = next->pos.y;
+			int dx = int(prev->pos.x - x);
+			int dy = int(prev->pos.y - y);
+			JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
+			const int steps = abs(dx) + abs(dy);
+			dx /= std::max(abs(dx), 1);
+			dy /= std::max(abs(dy), 1);
+			dx *= int(step);
+			dy *= int(step);
+			int dxa = 0, dya = 0;
+			for(int i = 0; i < steps; i += step)
+			{
+				if (dx && dy)
+				{
+					if (grid(prev->pos.x + dxa + dx, prev->pos.y + dya))
+					{
+						path.push_back(Pos(prev->pos.x + dxa + dx, prev->pos.y + dya));
+						path.push_back(Pos(prev->pos.x + dxa + dx, prev->pos.y + dya + dy));
+					}
+					else
+					{
+						path.push_back(Pos(prev->pos.x + dxa, prev->pos.y + dya + dy));
+						path.push_back(Pos(prev->pos.x + dxa + dx, prev->pos.y + dya + dy));
+					}
+				}
+				else
+				{
+					path.push_back(Pos(x+dxa, y+dya));
+				}
+
 				dxa += dx;
 				dya += dy;
 			}
@@ -910,10 +961,11 @@ using Internal::Searcher;
 //       This will also skip through walls if they are less than <skip> blocks thick at any reachable position.
 template <typename GRID> bool findPath(PathVector& path, const GRID& grid, unsigned startx, unsigned starty, unsigned endx, unsigned endy,
                                        unsigned step = 0, int skip = 0, // optional params
+                                       bool useDiagonals = true, // whether to use diagonal steps
                                        size_t *stepsDone = NULL, size_t *nodesExpanded = NULL // for information
                                        )
 {
-	Searcher<GRID> search(grid);
+	Searcher<GRID> search(grid, useDiagonals);
 	search.setSkip(skip);
 	bool found = search.findPath(path, Pos(startx, starty), Pos(endx, endy), step);
 	if(stepsDone)

@@ -95,7 +95,7 @@ double runScenario(const char *file)
 		int runs = 0;
 
 		// single-call
-		//bool found = JPS::findPath(path, grid, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY(), 0, 0, &stepsDone, &nodesExpanded);
+		//bool found = JPS::findPath(path, grid, ex.GetStartX(), ex.GetStartY(), ex.GetGoalX(), ex.GetGoalY(), 0, 0, true, &stepsDone, &nodesExpanded);
 
 		// Testing incremental runs
 		bool found = false;
