@@ -707,34 +707,41 @@ template <typename GRID> bool Searcher<GRID>::generatePath(PathVector& path, uns
 			int dx = int(prev->pos.x - x);
 			int dy = int(prev->pos.y - y);
 			JPS_ASSERT(!dx || !dy || abs(dx) == abs(dy)); // known to be straight, if diagonal
-			const int steps = abs(dx) + abs(dy);
+			const int steps = std::max(abs(dx), abs(dy));
 			dx /= std::max(abs(dx), 1);
 			dy /= std::max(abs(dy), 1);
 			dx *= int(step);
 			dy *= int(step);
 			int dxa = 0, dya = 0;
+			
 			for(int i = 0; i < steps; i += step)
 			{
 				if (dx && dy)
 				{
-					if (grid(prev->pos.x + dxa + dx, prev->pos.y + dya))
+					if (grid(x + dxa + dx, y + dya))
 					{
-						path.push_back(Pos(prev->pos.x + dxa + dx, prev->pos.y + dya));
-						path.push_back(Pos(prev->pos.x + dxa + dx, prev->pos.y + dya + dy));
+						path.push_back(Pos(x + dxa, y + dya));
+						dxa += dx;
+
+						path.push_back(Pos(x + dxa, y + dya));
+						dya += dy;
 					}
 					else
 					{
-						path.push_back(Pos(prev->pos.x + dxa, prev->pos.y + dya + dy));
-						path.push_back(Pos(prev->pos.x + dxa + dx, prev->pos.y + dya + dy));
+						path.push_back(Pos(x + dxa, y + dya));
+						dya += dy;
+
+						path.push_back(Pos(x + dxa, y + dya));
+						dxa += dx;
 					}
 				}
 				else
 				{
 					path.push_back(Pos(x+dxa, y+dya));
-				}
 
-				dxa += dx;
-				dya += dy;
+					dxa += dx;
+					dya += dy;
+				}
 			}
 			next = prev;
 			prev = prev->parent;
