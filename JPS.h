@@ -1,3 +1,8 @@
+/*
+NOTE! This version is old!
+Superseded by https://github.com/fgenesis/tinypile/blob/master/jps.hh, which is better, faster, and generally superior.
+*/
+
 #ifndef JUMP_POINT_SEARCH_H
 #define JUMP_POINT_SEARCH_H
 
