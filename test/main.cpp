@@ -93,7 +93,7 @@ int main(int argc, char **argv)
 	size_t stepsDone, nodesExpanded;
 	for(size_t i = 1; i < waypoints.size(); ++i)
 	{
-		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, step, 0, &stepsDone, &nodesExpanded);
+		bool found = JPS::findPath(path, grid, waypoints[i-1].x, waypoints[i-1].y, waypoints[i].x, waypoints[i].y, step, 0, true, &stepsDone, &nodesExpanded);
 		if(found)
 		{
 			assert(path[0] != waypoints[i-1]);
